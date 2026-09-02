@@ -1,0 +1,10 @@
+{
+  "name": "GreenPulse Smart Waste",
+  "short_name": "GreenPulse",
+  "description": "Smart waste reporting and campus cleanliness dashboard.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f8f9fb",
+  "theme_color": "#16a34a",
+  "icons": [{ "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
