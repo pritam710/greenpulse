@@ -12,8 +12,12 @@ const DEMO_BINS = [
   { id: 4, name: 'Hostel Block Blue Bin', type: 'Recyclable', lat: 17.6622, lng: 75.9090 },
 ];
 const LOCAL_REPORTS_KEY = 'greenpulse-offline-reports';
+const WORKFLOW_KEY = 'greenpulse-workflow';
 const getLocalReports = () => JSON.parse(localStorage.getItem(LOCAL_REPORTS_KEY) || '[]');
 const saveLocalReport = report => localStorage.setItem(LOCAL_REPORTS_KEY, JSON.stringify([report, ...getLocalReports()]));
+const getWorkflow = () => JSON.parse(localStorage.getItem(WORKFLOW_KEY) || '{}');
+const applyWorkflow = reports => reports.map(report => ({ ...report, ...(getWorkflow()[report.id] || {}) }));
+const updateWorkflow = (id, changes) => { const all=getWorkflow(); all[id]={...(all[id]||{}),...changes,updated_at:new Date().toISOString()}; localStorage.setItem(WORKFLOW_KEY,JSON.stringify(all)); };
 const Icon = ({ children, color }) => <span className={`icon ${color}`}>{children}</span>;
 
 function Modal({ title, close, children }) {
@@ -22,14 +26,15 @@ function Modal({ title, close, children }) {
   </div>;
 }
 
-function Landing({ citizen, admin }) {
+function Landing({ citizen, admin, staff }) {
   return <main className="landing">
     <section className="hero"><div className="logo">🍃</div><h1>Green Pulse</h1><h2>Smart Waste. Clean Campus.</h2><button onClick={citizen}>Launch Citizen App&nbsp; →</button></section>
     <section className="features"><p className="label">Platform features</p>
-      <article><Icon color="blue">📷</Icon><div><b>Offline AI Classification</b><p>Identify common waste categories on your device.</p></div></article>
+      <article><Icon color="blue">♻️</Icon><div><b>Four-Stream Segregation</b><p>Guidance for wet, dry, sanitary and special-care waste.</p></div></article>
       <article><Icon color="red">📍</Icon><div><b>Geotagged Reporting</b><p>Capture your location and report issues instantly.</p></div></article>
       <article><Icon color="yellow">🎁</Icon><div><b>Civic Wallet Rewards</b><p>Earn Eco-Points for verified contributions.</p></div></article>
       <button className="link" onClick={admin}>▣ &nbsp; Open Admin GIS Panel</button>
+      <button className="link secondary" onClick={staff}>✓ &nbsp; Open Cleaning Staff Workspace</button>
     </section>
   </main>;
 }
@@ -49,21 +54,29 @@ function Scanner({ close }) {
   </Modal>;
 }
 
+const STREAMS = [
+  { icon:'🥬',name:'Wet waste',color:'green',examples:'Food scraps, fruit peels, flowers',action:'Use the green bin. Compost or send for biomethanation.' },
+  { icon:'📦',name:'Dry waste',color:'blue',examples:'Plastic, paper, metal, glass, rubber',action:'Keep clean and dry. Use the blue bin for sorting and recycling.' },
+  { icon:'🩹',name:'Sanitary waste',color:'red',examples:'Diapers, sanitary pads, contaminated hygiene waste',action:'Wrap securely, mark it, and use the designated sanitary-waste bin.' },
+  { icon:'🔋',name:'Special-care waste',color:'yellow',examples:'Batteries, bulbs, paint containers, chemicals',action:'Do not mix with regular waste. Hand over at an authorized collection point.' },
+];
+function Segregation({ close }) { const[selected,setSelected]=useState(null);return <Modal title="Four-stream segregation" close={close}><h2 className="left">♻️ Segregation Assistant</h2><p className="bin-notice">Aligned with India’s Solid Waste Management Rules, 2026.</p><div className="stream-grid">{STREAMS.map(stream=><button key={stream.name} className={stream.color} onClick={()=>setSelected(stream)}><span>{stream.icon}</span><b>{stream.name}</b><small>{stream.examples}</small></button>)}</div>{selected&&<div className="stream-advice"><h3>{selected.icon} {selected.name}</h3><p>{selected.action}</p></div>}<button className="dark" onClick={close}>Close Guide</button></Modal>; }
+
 function Report({ close, success }) {
-  const [text, setText] = useState(''); const [photo, setPhoto] = useState(''); const [loc, setLoc] = useState(null); const [msg, setMsg] = useState({type:'', text:''});
+  const [text, setText] = useState(''); const [category,setCategory]=useState('Waste overflow'); const[priority,setPriority]=useState('Medium'); const [photo, setPhoto] = useState(''); const [loc, setLoc] = useState(null); const [msg, setMsg] = useState({type:'', text:''});
   useEffect(() => navigator.geolocation?.getCurrentPosition(p => setLoc({lat:p.coords.latitude,lng:p.coords.longitude}), () => setMsg({type:'warn',text:'Location unavailable; campus coordinates will be used.'}), {enableHighAccuracy:true,timeout:8000}), []);
   function choose(e) { const f=e.target.files?.[0]; if(!f)return; const r=new FileReader(); r.onload=()=>setPhoto(String(r.result)); r.readAsDataURL(f); }
   async function submit(e) {
     e.preventDefault(); setMsg({type:'wait',text:'Submitting report…'}); const p=loc||CAMPUS;
-    try { const r=await fetch(`${API}/reports`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({citizen_id:1,image_url:photo||'demo://no-photo',location_lat:p.lat,location_lng:p.lng,waste_type:text.trim(),severity:'Medium'})}); const data=await r.json().catch(()=>null); if(!r.ok)throw new Error(data?.detail||'Report failed'); setMsg({type:'ok',text:`Report #${data.id} submitted. +10 demo Eco-Points!`}); success(data.id); }
+    try { const r=await fetch(`${API}/reports`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({citizen_id:1,image_url:photo||'demo://no-photo',location_lat:p.lat,location_lng:p.lng,waste_type:`${category}: ${text.trim()}`,severity:priority})}); const data=await r.json().catch(()=>null); if(!r.ok)throw new Error(data?.detail||'Report failed'); setMsg({type:'ok',text:`Report #${data.id} submitted. +10 demo Eco-Points!`}); success(data.id); }
     catch(err){
       if (err instanceof TypeError) {
-        const offline={id:`OFF-${Date.now().toString().slice(-6)}`,citizen_id:1,image_url:photo||'demo://no-photo',location_lat:p.lat,location_lng:p.lng,waste_type:text.trim(),severity:'Medium',status:'Offline draft',created_at:new Date().toISOString()};
+        const offline={id:`OFF-${Date.now().toString().slice(-6)}`,citizen_id:1,image_url:photo||'demo://no-photo',location_lat:p.lat,location_lng:p.lng,waste_type:`${category}: ${text.trim()}`,severity:priority,status:'Pending',created_at:new Date().toISOString()};
         saveLocalReport(offline); setMsg({type:'ok',text:`Saved ${offline.id} on this device. It is available in the Admin demo while the shared API is offline.`}); success(offline.id);
       } else setMsg({type:'error',text:String(err.message)});
     }
   }
-  return <Modal title="Report issue" close={close}><form onSubmit={submit} className="report"><h2>⚠ &nbsp; Report Issue</h2><textarea required value={text} onChange={e=>setText(e.target.value)} placeholder="Describe the issue (e.g., overflowing mixed waste)"/><label className="photo">📷 {photo?'Photo attached':'Add waste photo'}<input type="file" accept="image/*" capture="environment" onChange={choose}/></label><p>📍 {loc?`${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`:'Getting location…'}</p>{msg.text&&<div className={`message ${msg.type}`}>{msg.text}</div>}<div className="buttons"><button type="button" onClick={close}>Cancel</button><button disabled={msg.type==='wait'||msg.type==='ok'}>Submit</button></div></form></Modal>;
+  return <Modal title="Report issue" close={close}><form onSubmit={submit} className="report"><h2>⚠ &nbsp; Report Waste or Sanitation Issue</h2><div className="form-row"><label>Issue type<select value={category} onChange={e=>setCategory(e.target.value)}><option>Waste overflow</option><option>Mixed or unsegregated waste</option><option>Dirty washroom</option><option>Drainage or waterlogging</option><option>Odour or pest problem</option><option>Unsafe sanitary waste</option><option>Illegal dumping</option></select></label><label>Priority<select value={priority} onChange={e=>setPriority(e.target.value)}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label></div><textarea required value={text} onChange={e=>setText(e.target.value)} placeholder="Describe what you observed and any safety risk"/><label className="photo">📷 {photo?'Photo attached':'Add evidence photo'}<input type="file" accept="image/*" capture="environment" onChange={choose}/></label><p>📍 {loc?`${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`:'Getting location…'}</p>{msg.text&&<div className={`message ${msg.type}`}>{msg.text}</div>}<div className="buttons"><button type="button" onClick={close}>Cancel</button><button disabled={msg.type==='wait'||msg.type==='ok'}>Submit</button></div></form></Modal>;
 }
 
 function Wallet({ points, close }) { return <Modal title="Civic wallet" close={close}><div className="gift">🎁</div><h2>Civic Wallet</h2><p>You have <b className="greenText">{points} Eco-Points</b> from civic contributions.</p><p className="label left">Available vouchers</p><div className="voucher"><span>🎟️ &nbsp; <b>Partner reward – 20% off</b><small>Demo voucher</small></span><strong>100 pts</strong></div><button className="dark" onClick={close}>Close Wallet</button></Modal>; }
@@ -96,9 +109,9 @@ function NearbyBins({ close }) {
 function Citizen({ home }) {
   const [modal,setModal]=useState(''); const [points,setPoints]=useState(150); const [last,setLast]=useState(null);
   return <main className="citizen"><header><div className="top"><button onClick={home}>←</button><h1>Green Pulse</h1><span>♧</span></div><div className="clean"><b>Campus cleanliness</b><strong>94%</strong></div></header>
-    <section className="actions"><button className="blue" onClick={()=>setModal('scan')}><Icon color="blue">📷</Icon><b>Identify Waste</b></button><button className="red" onClick={()=>setModal('report')}><Icon color="red">⚠</Icon><b>Report Issue</b></button><button className="green" onClick={()=>setModal('bins')}><Icon color="green">📍</Icon><b>Nearby Bins</b></button><button className="yellow" onClick={()=>setModal('wallet')}><Icon color="yellow">🎁</Icon><b>Eco Points: {points}</b></button></section>
+    <section className="actions"><button className="blue" onClick={()=>setModal('guide')}><Icon color="blue">♻️</Icon><b>Segregation Guide</b></button><button className="red" onClick={()=>setModal('report')}><Icon color="red">⚠</Icon><b>Report Issue</b></button><button className="green" onClick={()=>setModal('bins')}><Icon color="green">📍</Icon><b>Nearby Bins</b></button><button className="yellow" onClick={()=>setModal('wallet')}><Icon color="yellow">🎁</Icon><b>Eco Points: {points}</b></button><button className="blue wide" onClick={()=>setModal('scan')}><Icon color="blue">📷</Icon><b>Image Classification Demo</b></button></section>
     <section className="impact"><p className="label">Your civic impact</p><div><span>♻️ &nbsp; Waste Sorted</span><b>12.5 kg</b></div><div><span>📣 &nbsp; Issues Reported</span><b>{last?1:0}</b></div><div><span>🏆 &nbsp; Campus Rank</span><b>#42</b></div>{last&&<small>Latest report: #{last}</small>}</section>
-    {modal==='scan'&&<Scanner close={()=>setModal('')}/>} {modal==='report'&&<Report close={()=>setModal('')} success={id=>{setLast(id);setPoints(x=>x+10)}}/>} {modal==='wallet'&&<Wallet points={points} close={()=>setModal('')}/>} {modal==='bins'&&<NearbyBins close={()=>setModal('')}/>} 
+    {modal==='guide'&&<Segregation close={()=>setModal('')}/>} {modal==='scan'&&<Scanner close={()=>setModal('')}/>} {modal==='report'&&<Report close={()=>setModal('')} success={id=>{setLast(id);setPoints(x=>x+10)}}/>} {modal==='wallet'&&<Wallet points={points} close={()=>setModal('')}/>} {modal==='bins'&&<NearbyBins close={()=>setModal('')}/>} 
   </main>;
 }
 
@@ -111,9 +124,22 @@ function Map({ reports }) {
 
 function Admin({ home }) {
   const [reports,setReports]=useState([]),[message,setMessage]=useState('Loading reports…');
-  async function load(){setMessage('Loading reports…');const local=getLocalReports();try{const r=await fetch(`${API}/reports`);if(!r.ok)throw Error();const d=await r.json();setReports([...local,...d]);setMessage(local.length?`${local.length} device-local offline report(s) included.`:d.length?'':'No reports yet.')}catch{setReports(local);setMessage(local.length?'Shared API offline — showing reports saved on this device.':'Shared API offline — submit a report to create a device-local demo record.')}}
-  useEffect(()=>{const local=getLocalReports();fetch(`${API}/reports`).then(r=>{if(!r.ok)throw Error();return r.json()}).then(d=>{setReports([...local,...d]);setMessage(local.length?`${local.length} device-local offline report(s) included.`:d.length?'':'No reports yet.')}).catch(()=>{setReports(local);setMessage(local.length?'Shared API offline — showing device-local reports.':'Shared API offline — no device-local reports yet.')})},[]); const pending=useMemo(()=>reports.filter(r=>r.status==='Pending'||r.status==='Offline draft').length,[reports]);
-  return <main className="admin"><header><button onClick={home}>⌂</button><div><h1>Admin Control Panel</h1><p>Live GIS Mapping & Spatial Routing</p></div><div className="stat red"><b>{pending}</b><span>Active Reports</span></div><div className="stat green"><b>12</b><span>Fleet Active*</span></div></header><Map reports={reports}/><section className="list"><div><h2>Live reports</h2><button onClick={load}>Refresh</button></div>{message&&<p>{message}</p>}{reports.map(r=><article key={r.id}><b>#{r.id} · {r.waste_type}</b><span>{r.status} · {r.location_lat.toFixed(4)}, {r.location_lng.toFixed(4)}</span></article>)}<small>* Fleet count is demo data until its API is connected.</small></section></main>;
+  function merge(local,remote){return applyWorkflow([...local,...remote])}
+  async function load(){setMessage('Loading reports…');const local=getLocalReports();try{const r=await fetch(`${API}/reports`);if(!r.ok)throw Error();const d=await r.json();setReports(merge(local,d));setMessage(local.length?`${local.length} device-local report(s) included.`:d.length?'':'No reports yet.')}catch{setReports(merge(local,[]));setMessage(local.length?'API unavailable — showing device-local workflow.':'No reports yet.')}}
+  function transition(id,status){updateWorkflow(id,{status,assigned_to:status==='Assigned'?'Campus Cleaning Team':getWorkflow()[id]?.assigned_to});setReports(rows=>applyWorkflow(rows));}
+  useEffect(()=>{const local=getLocalReports();fetch(`${API}/reports`).then(r=>{if(!r.ok)throw Error();return r.json()}).then(d=>{setReports(merge(local,d));setMessage('')}).catch(()=>{setReports(merge(local,[]));setMessage(local.length?'API unavailable — showing device-local workflow.':'No reports yet.')})},[]);
+  const pending=reports.filter(r=>r.status==='Pending').length, active=reports.filter(r=>['Assigned','In progress'].includes(r.status)).length, resolved=reports.filter(r=>['Resolved','Verified'].includes(r.status)).length;
+  const high=reports.filter(r=>['High','Critical'].includes(r.severity)).length;
+  return <main className="admin"><header><button onClick={home}>⌂</button><div><h1>Admin Operations Centre</h1><p>GIS, assignment, verification and sanitation analytics</p></div><div className="stat red"><b>{pending}</b><span>Pending</span></div><div className="stat amber"><b>{active}</b><span>In progress</span></div><div className="stat green"><b>{resolved}</b><span>Resolved</span></div></header><section className="analytics"><div><b>{reports.length}</b><span>Total reports</span></div><div><b>{high}</b><span>High priority</span></div><div><b>{reports.length?Math.round(resolved/reports.length*100):0}%</b><span>Resolution rate</span></div><div><b>{new Set(reports.map(r=>r.waste_type.split(':')[0])).size}</b><span>Issue categories</span></div></section><Map reports={reports}/><section className="list"><div><h2>Operations queue</h2><button onClick={load}>Refresh</button></div>{message&&<p>{message}</p>}{reports.map(r=><article className="report-row" key={r.id}><span><b>#{r.id} · {r.waste_type}</b><small>{r.severity} priority · {r.location_lat.toFixed(4)}, {r.location_lng.toFixed(4)}</small></span><span className={`status ${String(r.status).toLowerCase().replace(' ','-')}`}>{r.status}</span><div className="row-actions">{r.status==='Pending'&&<button onClick={()=>transition(r.id,'Assigned')}>Assign</button>}{r.status==='Resolved'&&<button onClick={()=>transition(r.id,'Verified')}>Verify</button>}{r.status==='Verified'&&<b>✓ Closed</b>}</div></article>)}</section></main>;
 }
 
-export default function App(){const[view,setView]=useState('home');const[online,setOnline]=useState(navigator.onLine);useEffect(()=>{const yes=()=>setOnline(true),no=()=>setOnline(false);window.addEventListener('online',yes);window.addEventListener('offline',no);return()=>{window.removeEventListener('online',yes);window.removeEventListener('offline',no)}},[]);return <><div className={`network ${online?'online':'offline'}`}>{online?'● Online':'● Offline demo mode'}</div>{view==='citizen'?<Citizen home={()=>setView('home')}/>:view==='admin'?<Admin home={()=>setView('home')}/>:<Landing citizen={()=>setView('citizen')} admin={()=>setView('admin')}/>}</>}
+function Staff({ home }) {
+  const [reports,setReports]=useState([]); const[message,setMessage]=useState('Loading assigned tasks…');
+  async function load(){const local=getLocalReports();try{const r=await fetch(`${API}/reports`);const remote=r.ok?await r.json():[];setReports(applyWorkflow([...local,...remote]));setMessage('')}catch{setReports(applyWorkflow(local));setMessage('API unavailable — showing device-local assignments.')}}
+  useEffect(()=>{const timer=setTimeout(load,0);return()=>clearTimeout(timer)},[]);
+  function move(id,status){updateWorkflow(id,{status,assigned_to:'Campus Cleaning Team',completion_note:status==='Resolved'?'Area cleaned and waste moved to the designated stream.':''});setReports(rows=>applyWorkflow(rows));}
+  const tasks=reports.filter(r=>['Assigned','In progress','Resolved'].includes(r.status));
+  return <main className="staff"><header><button onClick={home}>←</button><div><h1>Cleaning Staff Workspace</h1><p>Assigned sanitation and waste-resolution tasks</p></div><button onClick={load}>Refresh</button></header><section className="staff-summary"><div><b>{tasks.filter(t=>t.status==='Assigned').length}</b><span>New</span></div><div><b>{tasks.filter(t=>t.status==='In progress').length}</b><span>Active</span></div><div><b>{tasks.filter(t=>t.status==='Resolved').length}</b><span>Awaiting verification</span></div></section><section className="task-list">{message&&<p>{message}</p>}{!tasks.length&&<div className="empty"><span>✓</span><h2>No assigned tasks</h2><p>Assign a pending report from the Admin Operations Centre.</p></div>}{tasks.map(task=><article key={task.id}><div className="task-head"><span><b>Task #{task.id}</b><small>{task.waste_type}</small></span><span className={`status ${task.status.toLowerCase().replace(' ','-')}`}>{task.status}</span></div><p>📍 {task.location_lat.toFixed(5)}, {task.location_lng.toFixed(5)} · <b>{task.severity}</b> priority</p><div className="task-actions">{task.status==='Assigned'&&<button onClick={()=>move(task.id,'In progress')}>Start task</button>}{task.status==='In progress'&&<button onClick={()=>move(task.id,'Resolved')}>Upload proof & mark resolved</button>}{task.status==='Resolved'&&<span>Submitted to administrator for verification.</span>}</div></article>)}</section></main>;
+}
+
+export default function App(){const[view,setView]=useState('home');const[online,setOnline]=useState(navigator.onLine);useEffect(()=>{const yes=()=>setOnline(true),no=()=>setOnline(false);window.addEventListener('online',yes);window.addEventListener('offline',no);return()=>{window.removeEventListener('online',yes);window.removeEventListener('offline',no)}},[]);return <><div className={`network ${online?'online':'offline'}`}>{online?'● Online':'● Offline demo mode'}</div>{view==='citizen'?<Citizen home={()=>setView('home')}/>:view==='admin'?<Admin home={()=>setView('home')}/>:view==='staff'?<Staff home={()=>setView('home')}/>:<Landing citizen={()=>setView('citizen')} admin={()=>setView('admin')} staff={()=>setView('staff')}/>}</>}
