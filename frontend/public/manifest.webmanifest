@@ -1,7 +1,7 @@
 {
   "name": "GreenPulse Smart Waste",
   "short_name": "GreenPulse",
-  "description": "Smart waste reporting and campus cleanliness dashboard.",
+  "description": "Instant civic waste reporting and transparent municipal resolution tracking by Pritam Rathod.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f8f9fb",
