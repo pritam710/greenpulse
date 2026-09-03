@@ -1,6 +1,18 @@
 # Free presentation hosting
 
-Prepared but not deployed. The current public demo has not been replaced.
+Deployed on 4 September 2026 using the Free plans. No local database was uploaded.
+
+- Citizen website: https://pritam710.github.io/Green-Pulse/
+- HTTPS backend: https://greenpulse-api-o5a2.onrender.com
+- Render Blueprint: GreenPulse SIH Pilot
+- Render web service: greenpulse-api
+- Render database: greenpulse-pilot-db (private network access configured)
+
+Hosted checks passed: root health, citizen registration/login, own-report listing,
+anonymous and admin-access rejection, logout revocation, and disabled Swagger docs.
+One synthetic deployment-check citizen account exists, with no reports.
+Real Administrator and Driver accounts still need trusted operator provisioning;
+no default password or public administrator registration has been introduced.
 
 The root render.yaml defines a free Python backend and a private PostgreSQL
 database on Render. SQLite remains the local development default. No local
@@ -14,7 +26,7 @@ Important limits from https://render.com/docs/free:
 - No purchase or paid plan is authorized. Stop if billing details or an upgrade
   are required.
 
-Next steps requiring the owner's hosting account:
+Deployment procedure (completed through frontend publication; staff provisioning remains):
 1. Sign in to https://dashboard.render.com/ and authorize access only to the
    pritam710/greenpulse repository when requested.
 2. Publish the reviewed source and create a Blueprint from render.yaml. Verify
@@ -28,6 +40,9 @@ Next steps requiring the owner's hosting account:
    Green-Pulse Pages repository only after end-to-end verification.
 5. Rehearse using separate Citizen/Admin/Driver accounts and record screenshots
    as a backup. Do not collect real citizen data for this presentation pilot.
+
+To reproduce the frontend build, set VITE_API_URL to the HTTPS backend above before
+running npm run build. Publish frontend/dist to the Green-Pulse Pages repository.
 
 Reference: https://render.com/docs/blueprint-spec
 Security controls and release limitations: SECURITY.md
