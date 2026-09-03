@@ -45,3 +45,27 @@ class WorkOrder(Base):
     proof_image_url = Column(String, nullable=True)
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
+
+# Separate tables keep existing reports intact; no destructive migration is needed.
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    token_hash = Column(String, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    expires_at = Column(Float, nullable=False)
+
+class ReportWorkflow(Base):
+    __tablename__ = "report_workflows"
+    report_id = Column(Integer, ForeignKey("reports.id"), primary_key=True)
+    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)
+    completion_note = Column(String, default="")
+    proof_image_url = Column(String, default="")
+    verification_note = Column(String, default="")
+    reward_points = Column(Integer, default=0)
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+    id = Column(Integer, primary_key=True)
+    report_id = Column(Integer, ForeignKey("reports.id"), nullable=False)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    action = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

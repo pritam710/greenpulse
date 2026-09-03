@@ -5,3 +5,4 @@ pydantic
 pydantic-settings
 python-multipart
 google-genai
+Pillow>=11.0
