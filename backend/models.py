@@ -69,3 +69,11 @@ class AuditEvent(Base):
     actor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     action = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class ConsentEvent(Base):
+    __tablename__ = "consent_events"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    purpose = Column(String, nullable=False)
+    policy_version = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -31,11 +31,14 @@ def create_report(body: schemas.ReportCreate, user=Depends(current_user), db: Se
     if user.role != "Citizen":
         raise HTTPException(403, "Use a citizen account to submit a report.")
     throttle(("report", user.id), 10, 3600)
-    report = models.Report(**body.model_dump(), citizen_id=user.id, status="Pending")
+    report_data = body.model_dump(exclude={"consent_accepted", "policy_version"})
+    report = models.Report(**report_data, citizen_id=user.id, status="Pending")
     db.add(report)
     db.flush()
     db.add(models.ReportWorkflow(report_id=report.id))
     db.add(models.AuditEvent(report_id=report.id, actor_id=user.id, action="Report submitted"))
+    db.add(models.ConsentEvent(user_id=user.id, purpose=f"Report {report.id} submission",
+                               policy_version=body.policy_version))
     db.commit()
     db.refresh(report)
     return output(db, report)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, readPhoto, setToken } from './api';
 import './security.css';
 import { Auth, useAuth } from './auth-context';
@@ -30,13 +30,30 @@ export function AuthProvider({ children }) {
 export function Access({ role, children, close }) {
   const { user, setUser } = useAuth();
   const [register, setRegister] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
+  const panel = useRef(null), previousFocus = useRef(null);
+  useEffect(() => {
+    if (!close || user) return;
+    previousFocus.current = document.activeElement;
+    panel.current?.querySelector('input, button, [href]')?.focus();
+    return () => previousFocus.current?.focus?.();
+  }, [close, user]);
+  function dialogKeys(event) {
+    if (!close) return;
+    if (event.key === 'Escape') { close(); return; }
+    if (event.key !== 'Tab') return;
+    const items = [...panel.current.querySelectorAll('button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])')];
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
   async function submit(event) {
     event.preventDefault(); setBusy(true); setMessage('');
     const fields = new FormData(event.currentTarget);
     const body = { email: fields.get('email'), password: fields.get('password') };
     try {
       if (register) {
-        await api('/auth/register', { method: 'POST', body: JSON.stringify({ ...body, name: fields.get('name') }) });
+        await api('/auth/register', { method: 'POST', body: JSON.stringify({ ...body, name: fields.get('name'), consent_accepted: true, policy_version: '2026-09-06' }) });
         setRegister(false); setMessage('Account created. Now sign in.');
       } else {
         const result = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
@@ -45,15 +62,16 @@ export function Access({ role, children, close }) {
     } catch (e) { setMessage(e.message); } finally { setBusy(false); }
   }
   if (user) return user.role === role ? children : <section className="security-panel"><h2>Restricted workspace</h2><p>Sign out and use an authorized {role === 'Driver' ? 'field worker' : role.toLowerCase()} account.</p>{close && <button onClick={close}>Back</button>}</section>;
-  return <div className={close ? 'shade' : undefined}><section className="security-panel" role={close ? 'dialog' : undefined} aria-modal={close ? true : undefined} aria-label="Account access"><h2>{register ? 'Create citizen account' : 'Sign in securely'}</h2><p>Your reports and points belong to your account. Staff accounts are issued by an operator.</p>
+  return <div className={close ? 'shade' : undefined}><section ref={panel} className="security-panel" role={close ? 'dialog' : undefined} aria-modal={close ? true : undefined} aria-label="Account access" onKeyDown={dialogKeys}><h2>{register ? 'Create citizen account' : 'Sign in securely'}</h2><p>Your reports and points belong to your account. Staff accounts are issued by an operator.</p>
     <form onSubmit={submit}>{register && <label>Name<input name="name" required maxLength={80} autoComplete="name"/></label>}
       <label>Email<input name="email" type="email" required maxLength={254} autoComplete="username"/></label>
       <label>Password<input name="password" type="password" required minLength={12} maxLength={128} autoComplete={register ? 'new-password' : 'current-password'}/></label>
       <small>At least 12 characters. Sessions stay in memory and end on page reload.</small>
-      <button className="dark" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create account' : 'Sign in'}</button>
-    </form>{message && <p role="status">{message}</p>}{role === 'Citizen' && <button onClick={() => { setRegister(!register); setMessage(''); }}>{register ? 'I already have an account' : 'Create citizen account'}</button>}
-    <p className="privacy-note">Pilot: use demonstration data only. Photos and selected GPS coordinates are shared with authorized municipal staff. No real voucher redemption is available.</p>
-    {close && <button onClick={close}>Cancel</button>}
+      {register && <><label className="consent"><input name="legal-consent" type="checkbox" required/><span>I agree to the <a href="?policy=terms" target="_blank" rel="noreferrer">Terms and Conditions</a> and acknowledge the <a href="?policy=privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</span></label><p className="legal-notice">Create an account only if you are 18 or older. A supervised institutional pilot involving children requires an approved guardian-consent process.</p></>}
+      <button type="submit" className="dark" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create citizen account' : 'Sign in to GreenPulse'}</button>
+    </form>{message && <p role="status">{message}</p>}{role === 'Citizen' && <button type="button" onClick={() => { setRegister(!register); setMessage(''); }}>{register ? 'Use an existing account' : 'Create a citizen account'}</button>}
+    <p className="privacy-note">Student pilot: use demonstration data only. Report information is shared with authorised operators. No real voucher redemption is available.</p>
+    {close && <button type="button" onClick={close}>Cancel sign in</button>}
   </section></div>;
 }
 
@@ -78,7 +96,7 @@ export function MyReports({ close }) {
     catch (e) { setMessage(e.message); } finally { setBusy(false); }
   }
   return <div className="shade"><section className="modal" role="dialog" aria-modal="true" aria-label="My reports"><h2>My reports</h2><p role="status">{message}</p><button onClick={load}>Refresh status</button>
-    <div className="citizen-reports">{rows.map(r => <article key={r.id}><b>#{r.id} · {r.waste_type}</b><p>{r.status}</p><small>First-response pilot target: {{ Critical: 2, High: 4, Medium: 12, Low: 24 }[r.severity] || 12} hours from submission—not a municipal guarantee.</small><div className="progress-track">{FLOW.slice(0, 6).map((s, i) => <i key={s} className={i <= FLOW.indexOf(r.status) ? 'done' : ''} title={s}/>)}</div>{r.verification_note && <p>{r.verification_note} · {r.reward_points} verified points</p>}{r.status === 'Verified' && <button disabled={busy} onClick={() => confirm(r.id)}>Confirm successful resolution</button>}</article>)}</div>
+    <div className="citizen-reports">{rows.map(r => <article key={r.id}><b>#{r.id} · {r.waste_type}</b><p>{r.status}</p><small>First-response pilot target: {{ Critical: 2, High: 4, Medium: 12, Low: 24 }[r.severity] || 12} hours from submission—not a municipal guarantee.</small><div className="progress-track" role="img" aria-label={`Current report status: ${r.status}`}>{FLOW.slice(0, 6).map((s, i) => <i key={s} className={i <= FLOW.indexOf(r.status) ? 'done' : ''} aria-hidden="true"/>)}</div>{r.verification_note && <p>{r.verification_note} · {r.reward_points} verified points</p>}{r.status === 'Verified' && <button disabled={busy} onClick={() => confirm(r.id)}>Confirm successful resolution</button>}</article>)}</div>
     <button className="dark" onClick={close}>Close</button></section></div>;
 }
 

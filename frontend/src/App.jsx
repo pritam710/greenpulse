@@ -6,6 +6,7 @@ import './App.css';
 import { api, readPhoto } from './api';
 import { AuthProvider, Access, MyReports, Operations } from './Secure';
 import { useAuth } from './auth-context';
+import { LegalFooter, LegalPage } from './Legal';
 const CAMPUS = { lat: 17.6599, lng: 75.9064 };
 const DEMO_BINS = [
   { id: 1, name: 'Main Gate Recycling Bin', type: 'Recyclable', lat: 17.6614, lng: 75.9049 },
@@ -13,17 +14,34 @@ const DEMO_BINS = [
   { id: 3, name: 'Library Segregation Point', type: 'Mixed', lat: 17.6577, lng: 75.9052 },
   { id: 4, name: 'Hostel Block Blue Bin', type: 'Recyclable', lat: 17.6622, lng: 75.9090 },
 ];
-const Icon = ({ children, color }) => <span className={`icon ${color}`}>{children}</span>;
+const Icon = ({ children, color }) => <span className={`icon ${color}`} aria-hidden="true">{children}</span>;
 
 function Modal({ title, close, children }) {
+  const dialog = useRef(null);
+  const previousFocus = useRef(null);
+  useEffect(() => {
+    previousFocus.current = document.activeElement;
+    const first = dialog.current?.querySelector('button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])');
+    first?.focus();
+    return () => previousFocus.current?.focus?.();
+  }, []);
+  function keys(event) {
+    if (event.key === 'Escape') { close(); return; }
+    if (event.key !== 'Tab') return;
+    const items = [...dialog.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])')];
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
   return <div className="shade" onMouseDown={e => e.target === e.currentTarget && close()}>
-    <section className="modal" role="dialog" aria-modal="true" aria-label={title}>{children}</section>
+    <section ref={dialog} className="modal" role="dialog" aria-modal="true" aria-label={title} onKeyDown={keys}>{children}</section>
   </div>;
 }
 
 function Landing({ citizen, admin, staff }) {
   return <main className="landing">
-    <a className="skip" href="#main-content">Skip to content</a><section className="hero"><div className="hero-glow"/><div className="logo">🍃</div><p className="hero-kicker">SIH 26195 · Clean & Green Technology</p><h1>Green Pulse</h1><h2>From citizen report to verified resolution.</h2><p className="hero-copy">A rule-aligned, offline-ready waste and sanitation operations platform for campuses, wards and urban local bodies.</p><button onClick={citizen}>Launch Citizen App&nbsp; →</button><div className="trust-row"><span>✓ Four-stream guidance</span><span>✓ GIS operations</span><span>✓ Audit-ready workflow</span></div></section>
+    <a className="skip" href="#main-content">Skip to content</a><section className="hero"><div className="hero-glow"/><div className="logo" aria-hidden="true">🍃</div><p className="hero-kicker">SIH 26195 · Clean & Green Technology</p><h1>Green Pulse</h1><h2>From citizen report to verified resolution.</h2><p className="hero-copy">A student-built waste and sanitation reporting pilot for campuses and wards.</p><button onClick={citizen}>Open citizen reporting</button><div className="trust-row"><span>Four-stream guidance</span><span>GIS report map</span><span>Server-recorded workflow</span></div></section>
     <section id="main-content" className="features"><p className="label">Platform capabilities</p>
       <article><Icon color="blue">♻️</Icon><div><b>Four-Stream Segregation</b><p>Guidance for wet, dry, sanitary and special-care waste.</p></div></article>
       <article><Icon color="red">📍</Icon><div><b>Geotagged Reporting</b><p>Capture your location and report issues instantly.</p></div></article>
@@ -31,9 +49,8 @@ function Landing({ citizen, admin, staff }) {
       <button className="link" onClick={admin}>▣ &nbsp; Open Admin GIS Panel</button>
       <button className="link secondary" onClick={staff}>✓ &nbsp; Open Cleaning Staff Workspace</button>
     </section>
-    <section className="journey"><p className="label">Closed-loop operations</p><h2>Every complaint has an owner, SLA and verifiable outcome</h2><div className="journey-grid">{[['1','Citizen reports','Photo, category, priority and GPS'],['2','Admin triages','Map, risk and duplicate review'],['3','Team accepts','Named owner and response SLA'],['4','Staff resolves','Completion evidence and notes'],['5','Admin verifies','Audit trail and analytics update']].map(step=><article key={step[0]}><span>{step[0]}</span><b>{step[1]}</b><p>{step[2]}</p></article>)}</div></section>
-    <section className="gov-ready"><div><p className="label">Government pilot readiness</p><h2>Designed to scale from one campus to a ward command centre</h2><p>Open REST architecture, role-based workflow design, low-connectivity support and traceable resolution records create a credible path to ULB integration.</p></div><div className="readiness-grid"><article><b>4</b><span>Mandatory waste streams</span></article><article><b>5</b><span>Workflow states</span></article><article><b>3</b><span>Operational roles</span></article><article><b>24×7</b><span>Offline-ready access</span></article></div></section>
-    <footer>GreenPulse · Project lead: <b>Pritam Rathod</b> · SIH 2026</footer>
+    <section className="journey"><p className="label">Report workflow</p><h2>A visible path from submission to confirmation</h2><div className="journey-grid">{[['1','Citizen reports','Category, description, optional photo and location'],['2','Admin assigns','A registered field worker receives the task'],['3','Worker updates','Inspection and cleaning stages are recorded'],['4','Worker resolves','Completion photo and notes are required'],['5','Admin verifies','The citizen can then confirm the result']].map(step=><article key={step[0]}><span>{step[0]}</span><b>{step[1]}</b><p>{step[2]}</p></article>)}</div></section>
+    <section className="gov-ready"><div><p className="label">Pilot scope</p><h2>Built for controlled campus or ward evaluation</h2><p>The current prototype demonstrates role-based reporting and verification. Government use would require authorised ownership, security and accessibility assessment, compliant hosting, verified operational data, and a measured pilot.</p></div><div className="readiness-grid"><article><b>4</b><span>Guidance streams</span></article><article><b>7</b><span>Report statuses</span></article><article><b>3</b><span>Operational roles</span></article><article><b>Pilot</b><span>Not an official service</span></article></div></section>
   </main>;
 }
 
@@ -69,11 +86,11 @@ function Report({ close, success }) {
     if (!Number.isFinite(loc?.lat) || !Number.isFinite(loc?.lng)) { setMsg({type:'error',text:'A location is required. Enable location permission or enter the coordinates.'}); return; }
     setMsg({type:'wait',text:'Submitting report…'});
     try {
-      const data=await api('/reports',{method:'POST',body:JSON.stringify({image_url:photo,location_lat:loc.lat,location_lng:loc.lng,waste_type:`${category}: ${text.trim()}`,severity:priority})});
+      const data=await api('/reports',{method:'POST',body:JSON.stringify({image_url:photo,location_lat:loc.lat,location_lng:loc.lng,waste_type:`${category}: ${text.trim()}`,severity:priority,consent_accepted:true,policy_version:'2026-09-06'})});
       setMsg({type:'ok',text:`Report #${data.id} received by the server and queued for review.`}); success(data.id);
     } catch(err) { setMsg({type:'error',text:err.message}); }
   }
-  return <Modal title="Report issue" close={close}><form onSubmit={submit} className="report"><h2>⚠ &nbsp; Report Waste or Sanitation Issue</h2><div className="form-row"><label>Issue type<select value={category} onChange={e=>setCategory(e.target.value)}><option>Waste overflow</option><option>Mixed or unsegregated waste</option><option>Dirty washroom</option><option>Drainage or waterlogging</option><option>Odour or pest problem</option><option>Unsafe sanitary waste</option><option>Illegal dumping</option></select></label><label>Priority<select value={priority} onChange={e=>setPriority(e.target.value)}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label></div><textarea required maxLength={900} value={text} onChange={e=>setText(e.target.value)} placeholder="Describe what you observed and any safety risk"/><label className="photo">📷 {photo?'Photo attached':'Add evidence photo'}<input type="file" accept="image/*" capture="environment" onChange={choose}/></label><p>📍 {Number.isFinite(loc?.lat)&&Number.isFinite(loc?.lng)?`${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`:'Location not set'}</p><div className="form-row"><label>Latitude<input type="number" step="any" min="-90" max="90" required value={loc?.lat ?? ''} onChange={e=>setLoc(p=>({...p,lat:e.target.value===''?undefined:Number(e.target.value)}))}/></label><label>Longitude<input type="number" step="any" min="-180" max="180" required value={loc?.lng ?? ''} onChange={e=>setLoc(p=>({...p,lng:e.target.value===''?undefined:Number(e.target.value)}))}/></label></div><p className="privacy-note">Photo and coordinates are shared with authorized municipal staff. Avoid faces and number plates. Nothing is stored on this device after closing the form.</p>{msg.text&&<div className={`message ${msg.type}`}>{msg.text}</div>}<div className="buttons"><button type="button" onClick={close}>Cancel</button><button disabled={msg.type==='wait'||msg.type==='ok'}>Submit</button></div></form></Modal>;
+  return <Modal title="Report issue" close={close}><form onSubmit={submit} className="report"><h2>Report a waste or sanitation issue</h2><div className="form-row"><label>Issue type<select value={category} onChange={e=>setCategory(e.target.value)}><option>Waste overflow</option><option>Mixed or unsegregated waste</option><option>Dirty washroom</option><option>Drainage or waterlogging</option><option>Odour or pest problem</option><option>Unsafe sanitary waste</option><option>Illegal dumping</option></select></label><label>Priority<select value={priority} onChange={e=>setPriority(e.target.value)}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label></div><label>What did you observe?<textarea required maxLength={900} value={text} onChange={e=>setText(e.target.value)} placeholder="Describe the issue and any safety risk"/></label><label className="photo">{photo?'Evidence photo attached':'Add an optional evidence photo'}<input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={choose}/></label><p>Report location: {Number.isFinite(loc?.lat)&&Number.isFinite(loc?.lng)?`${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`:'not set'}</p><div className="form-row"><label>Latitude<input type="number" inputMode="decimal" step="any" min="-90" max="90" required value={loc?.lat ?? ''} onChange={e=>setLoc(p=>({...p,lat:e.target.value===''?undefined:Number(e.target.value)}))}/></label><label>Longitude<input type="number" inputMode="decimal" step="any" min="-180" max="180" required value={loc?.lng ?? ''} onChange={e=>setLoc(p=>({...p,lng:e.target.value===''?undefined:Number(e.target.value)}))}/></label></div><p className="privacy-note">Your report and coordinates are shared with authorised operators. Avoid faces, number plates, identity documents, and unrelated people.</p><label className="consent"><input type="checkbox" required/><span>I consent to GreenPulse processing this report, location, and optional photo for the pilot workflow. I have permission to submit the content.</span></label><p className="legal-notice">Read the <a href="?policy=privacy" target="_blank">Privacy Policy</a> and <a href="?policy=terms" target="_blank">Terms and Conditions</a>.</p>{msg.text&&<div className={`message ${msg.type}`} role="status">{msg.text}</div>}<div className="buttons"><button type="button" onClick={close}>Cancel report</button><button disabled={msg.type==='wait'||msg.type==='ok'}>Submit report</button></div></form></Modal>;
 }
 
 function Wallet({ points, close }) { return <Modal title="Civic wallet" close={close}><div className="gift">🎁</div><h2>Civic Wallet</h2><p>You have <b className="greenText">{points} Eco-Points</b> from civic contributions.</p><p className="label left">Available vouchers</p><div className="voucher"><span>🎟️ &nbsp; <b>Partner reward – 20% off</b><small>Demo voucher</small></span><strong>100 pts</strong></div><button className="dark" onClick={close}>Close Wallet</button></Modal>; }
@@ -124,6 +141,6 @@ function Map({ reports }) {
 function Admin({home}) { return <Access role="Admin" close={home}><Operations home={home} Map={Map}/></Access>; }
 function Staff({home}) { return <Access role="Driver" close={home}><Operations home={home} staffMode Map={Map}/></Access>; }
 
-function AppContent(){const[view,setView]=useState('citizen');const[online,setOnline]=useState(navigator.onLine);useEffect(()=>{const yes=()=>setOnline(true),no=()=>setOnline(false);window.addEventListener('online',yes);window.addEventListener('offline',no);return()=>{window.removeEventListener('online',yes);window.removeEventListener('offline',no)}},[]);return <><div className={`network ${online?'online':'offline'}`}>{online?'● Online':'● Offline — server actions unavailable'}</div>{view==='citizen'?<Citizen home={()=>setView('home')}/>:view==='admin'?<Admin home={()=>setView('home')}/>:view==='staff'?<Staff home={()=>setView('home')}/>:<Landing citizen={()=>setView('citizen')} admin={()=>setView('admin')} staff={()=>setView('staff')}/>}</>}
+function AppContent(){const initialPolicy=new URLSearchParams(window.location.search).get('policy');const[view,setView]=useState(initialPolicy?'legal':'citizen');const[policy,setPolicy]=useState(initialPolicy||'privacy');const[online,setOnline]=useState(navigator.onLine);useEffect(()=>{const yes=()=>setOnline(true),no=()=>setOnline(false);window.addEventListener('online',yes);window.addEventListener('offline',no);return()=>{window.removeEventListener('online',yes);window.removeEventListener('offline',no)}},[]);function openPolicy(id){setPolicy(id);setView('legal');window.history.replaceState({},'',`?policy=${id}`);window.scrollTo(0,0)}function home(){window.history.replaceState({},'',window.location.pathname);setView('citizen');window.scrollTo(0,0)}if(view==='legal')return <LegalPage page={policy} onBack={home}/>;return <><div className={`network ${online?'online':'offline'}`}>{online?'Online':'Offline — reporting and status updates unavailable'}</div>{view==='citizen'?<Citizen home={()=>setView('home')}/>:view==='admin'?<Admin home={()=>setView('home')}/>:view==='staff'?<Staff home={()=>setView('home')}/>:<Landing citizen={()=>setView('citizen')} admin={()=>setView('admin')} staff={()=>setView('staff')}/>}<LegalFooter onOpen={openPolicy}/></>}
 
 export default function App(){return <AuthProvider><AppContent/></AuthProvider>;}

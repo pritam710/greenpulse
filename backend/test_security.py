@@ -49,7 +49,8 @@ class SecurityTests(unittest.TestCase):
     def create(self):
         response = self.client.post('/reports', headers=self.headers(), json={
             "location_lat": 17.66, "location_lng": 75.9, "waste_type": "Waste overflow",
-            "severity": "Medium", "image_url": self.photo})
+            "severity": "Medium", "image_url": self.photo,
+            "consent_accepted": True, "policy_version": "2026-09-06"})
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()["id"]
 
@@ -72,7 +73,8 @@ class SecurityTests(unittest.TestCase):
         body = {"location_lat": 1, "location_lng": 1, "waste_type": "Test", "citizen_id": 2}
         self.assertEqual(self.client.post('/reports', headers=self.headers(), json=body).status_code, 422)
         response = self.client.post('/auth/register', json={"name": "Attacker", "email": "new@example.test",
-                                   "password": self.password, "role": "Admin"})
+                                   "password": self.password, "role": "Admin",
+                                   "consent_accepted": True, "policy_version": "2026-09-06"})
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.client.get('/auth/staff', headers=self.headers()).status_code, 403)
 
@@ -139,7 +141,8 @@ class SecurityTests(unittest.TestCase):
 
     def test_input_upload_and_error_redaction(self):
         for image in ['https://internal.example/secret', 'data:image/svg+xml;base64,PHN2Zz4=', 'data:image/png;base64,bm90LWltYWdl']:
-            response = self.client.post('/reports', headers=self.headers(), json={"waste_type": "Test", "location_lat": 1, "location_lng": 2, "image_url": image})
+            response = self.client.post('/reports', headers=self.headers(), json={"waste_type": "Test", "location_lat": 1, "location_lng": 2, "image_url": image,
+                                                                                  "consent_accepted": True, "policy_version": "2026-09-06"})
             self.assertEqual(response.status_code, 422)
             self.assertNotIn(image, response.text)
         response = self.client.post('/auth/login', json={"email": "bad", "password": "sensitive"})
@@ -161,13 +164,28 @@ class SecurityTests(unittest.TestCase):
         with SessionLocal() as db:
             db.add(models.Report(citizen_id=99, image_url='', location_lat=1, location_lng=1, waste_type='Legacy', severity='Low'))
             db.commit()
-        response = self.client.post('/auth/register', json={"name": "New person", "email": "new@example.test", "password": self.password})
+        response = self.client.post('/auth/register', json={"name": "New person", "email": "new@example.test", "password": self.password,
+                                                              "consent_accepted": True, "policy_version": "2026-09-06"})
         self.assertEqual(response.status_code, 201)
         with SessionLocal() as db:
             user = db.query(models.User).filter_by(email='new@example.test').one()
             self.assertGreater(user.id, 99)
             self.assertEqual(user.role, 'Citizen')
             self.assertTrue(user.password_hash.startswith('scrypt$'))
+
+    def test_consent_is_required_and_recorded(self):
+        missing = self.client.post('/auth/register', json={
+            "name": "No Consent", "email": "no-consent@example.test", "password": self.password})
+        self.assertEqual(missing.status_code, 422)
+        response = self.client.post('/auth/register', json={
+            "name": "Consenting person", "email": "consent@example.test", "password": self.password,
+            "consent_accepted": True, "policy_version": "2026-09-06"})
+        self.assertEqual(response.status_code, 201, response.text)
+        rid = self.create()
+        with SessionLocal() as db:
+            events = db.query(models.ConsentEvent).order_by(models.ConsentEvent.id).all()
+            self.assertEqual([event.purpose for event in events], ["Account registration", f"Report {rid} submission"])
+            self.assertTrue(all(event.policy_version == "2026-09-06" for event in events))
 
 if __name__ == '__main__':
     unittest.main()

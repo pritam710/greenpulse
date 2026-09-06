@@ -3,6 +3,7 @@ import secrets
 import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Literal
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,8 @@ class Credentials(BaseModel):
 
 class Registration(Credentials):
     name: str = Field(min_length=1, max_length=80)
+    consent_accepted: Literal[True]
+    policy_version: Literal["2026-09-06"]
 
     @field_validator("name")
     @classmethod
@@ -44,6 +47,9 @@ def register(body: Registration, request: Request, db: Session = Depends(get_db)
                        password_hash=hash_password(body.password), role="Citizen", green_credits=0)
     db.add(user)
     try:
+        db.flush()
+        db.add(models.ConsentEvent(user_id=user.id, purpose="Account registration",
+                                   policy_version=body.policy_version))
         db.commit()
     except IntegrityError:
         db.rollback()
