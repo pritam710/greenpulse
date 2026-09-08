@@ -5,12 +5,22 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import models
-from database import engine
+from database import engine, SessionLocal
 from routers import reports, auth
 from config import settings
 from security import throttle
 
 models.Base.metadata.create_all(bind=engine)
+
+# A hosting secret can promote one already-registered owner account. This avoids
+# public admin registration and never creates or stores a password in source.
+if settings.bootstrap_admin_email:
+    with SessionLocal() as bootstrap_db:
+        owner = bootstrap_db.query(models.User).filter(
+            models.User.email == settings.bootstrap_admin_email.strip().lower()).first()
+        if owner and owner.role != "Admin":
+            owner.role = "Admin"
+            bootstrap_db.commit()
 
 production = settings.environment == "production"
 origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]

@@ -78,6 +78,16 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.client.get('/auth/staff', headers=self.headers()).status_code, 403)
 
+    def test_only_admin_can_create_staff_accounts(self):
+        body = {"name": "Ward Admin", "email": "ward-admin@example.test",
+                "password": self.password, "role": "Admin"}
+        self.assertEqual(self.client.post('/auth/staff', headers=self.headers(1), json=body).status_code, 403)
+        created = self.client.post('/auth/staff', headers=self.headers(3), json=body)
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()["user"]["role"], "Admin")
+        self.assertNotIn("password_hash", created.text)
+        self.assertEqual(self.client.post('/auth/staff', headers=self.headers(3), json=body).status_code, 409)
+
     def test_full_flow_rewards_and_no_replay(self):
         rid = self.create()
         self.assertEqual(self.move(rid, 1, 'Assigned', assigned_to=4).status_code, 403)

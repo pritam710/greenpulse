@@ -4,7 +4,7 @@ import getpass
 from sqlalchemy.exc import IntegrityError
 import models
 from database import engine, SessionLocal
-from routers.auth import Registration
+from routers.auth import StaffRegistration
 from security import hash_password, next_user_id
 
 def main():
@@ -17,7 +17,7 @@ def main():
     if password != getpass.getpass("Repeat password: "):
         raise SystemExit("Passwords did not match.")
     try:
-        body = Registration(name=name, email=email, password=password)
+        body = StaffRegistration(name=name, email=email, password=password, role=args.role)
     except ValueError:
         raise SystemExit("Invalid details. Use a valid email and a 12-128 character password.")
     models.Base.metadata.create_all(engine)

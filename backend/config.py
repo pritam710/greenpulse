@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     session_hours: int = Field(default=8, ge=1, le=24)
+    bootstrap_admin_email: str = ""
 
     class Config:
         env_file = ".env"

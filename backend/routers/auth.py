@@ -40,6 +40,17 @@ class Registration(Credentials):
             raise ValueError("Name is required")
         return value.strip()
 
+class StaffRegistration(Credentials):
+    name: str = Field(min_length=1, max_length=80)
+    role: Literal["Admin", "Driver"]
+
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value):
+        if not value.strip():
+            raise ValueError("Name is required")
+        return value.strip()
+
 @router.post("/register", status_code=201)
 def register(body: Registration, request: Request, db: Session = Depends(get_db)):
     throttle(("register", request.client.host), 5, 3600)
@@ -87,3 +98,20 @@ def staff(user=Depends(current_user), db: Session = Depends(get_db)):
         raise HTTPException(403, "Administrator access required.")
     return [{"id": u.id, "name": u.name} for u in
             db.query(models.User).filter(models.User.role == "Driver").all()]
+
+@router.post("/staff", status_code=201)
+def create_staff(body: StaffRegistration, request: Request,
+                 user=Depends(current_user), db: Session = Depends(get_db)):
+    if user.role != "Admin":
+        raise HTTPException(403, "Administrator access required.")
+    throttle(("staff-create", user.id), 10, 3600)
+    staff_user = models.User(id=next_user_id(db), name=body.name, email=body.email,
+                             password_hash=hash_password(body.password), role=body.role,
+                             green_credits=0)
+    db.add(staff_user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "An account with that email already exists.")
+    return {"message": f"{body.role} account created.", "user": safe_user(staff_user)}
