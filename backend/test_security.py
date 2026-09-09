@@ -19,6 +19,7 @@ from main import app
 from database import engine, SessionLocal
 import models
 import security
+from config import settings
 
 class SecurityTests(unittest.TestCase):
     @classmethod
@@ -87,6 +88,23 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(created.json()["user"]["role"], "Admin")
         self.assertNotIn("password_hash", created.text)
         self.assertEqual(self.client.post('/auth/staff', headers=self.headers(3), json=body).status_code, 409)
+
+    def test_only_owner_can_revoke_staff_access(self):
+        previous = settings.bootstrap_admin_email
+        settings.bootstrap_admin_email = "test3@example.test"
+        try:
+            listing = self.client.get('/auth/staff/manage', headers=self.headers(3))
+            self.assertEqual(listing.status_code, 200, listing.text)
+            self.assertTrue(any(account["is_owner"] for account in listing.json()))
+            self.assertEqual(self.client.delete('/auth/staff/4', headers=self.headers(1)).status_code, 403)
+            self.assertEqual(self.client.delete('/auth/staff/3', headers=self.headers(3)).status_code, 409)
+            revoked = self.client.delete('/auth/staff/5', headers=self.headers(3))
+            self.assertEqual(revoked.status_code, 200, revoked.text)
+            self.assertEqual(self.client.get('/auth/me', headers=self.headers(5)).status_code, 401)
+            with SessionLocal() as db:
+                self.assertEqual(db.get(models.User, 5).role, "Disabled")
+        finally:
+            settings.bootstrap_admin_email = previous
 
     def test_full_flow_rewards_and_no_replay(self):
         rid = self.create()

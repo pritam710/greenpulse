@@ -15,6 +15,13 @@ from security import (DUMMY_HASH, current_user, hash_password, next_user_id,
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
+def is_owner(user):
+    return bool(settings.bootstrap_admin_email) and user.role == "Admin" and \
+        user.email == settings.bootstrap_admin_email.strip().lower()
+
+def session_user(user):
+    return {**safe_user(user), "is_owner": is_owner(user)}
+
 class Credentials(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: str = Field(min_length=3, max_length=254)
@@ -80,11 +87,11 @@ def login(body: Credentials, request: Request, db: Session = Depends(get_db)):
     db.add(models.AuthSession(token_hash=token_hash(token), user_id=user.id,
                              expires_at=time.time() + settings.session_hours * 3600))
     db.commit()
-    return {"token": token, "user": safe_user(user)}
+    return {"token": token, "user": session_user(user)}
 
 @router.get("/me")
 def me(user=Depends(current_user)):
-    return safe_user(user)
+    return session_user(user)
 
 @router.post("/logout", status_code=204)
 def logout(request: Request, user=Depends(current_user), db: Session = Depends(get_db)):
@@ -115,3 +122,26 @@ def create_staff(body: StaffRegistration, request: Request,
         db.rollback()
         raise HTTPException(409, "An account with that email already exists.")
     return {"message": f"{body.role} account created.", "user": safe_user(staff_user)}
+
+@router.get("/staff/manage")
+def manage_staff(user=Depends(current_user), db: Session = Depends(get_db)):
+    if not is_owner(user):
+        raise HTTPException(403, "Owner access required.")
+    return [{"id": account.id, "name": account.name, "email": account.email,
+             "role": account.role, "is_owner": is_owner(account)} for account in
+            db.query(models.User).filter(models.User.role.in_(("Admin", "Driver"))).order_by(models.User.name).all()]
+
+@router.delete("/staff/{staff_id}")
+def revoke_staff(staff_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
+    if not is_owner(user):
+        raise HTTPException(403, "Owner access required.")
+    account = db.get(models.User, staff_id)
+    if not account or account.role not in ("Admin", "Driver"):
+        raise HTTPException(404, "Staff account not found.")
+    if account.id == user.id or is_owner(account):
+        raise HTTPException(409, "The GreenPulse owner account cannot be removed.")
+    previous_role = account.role
+    account.role = "Disabled"
+    db.query(models.AuthSession).filter(models.AuthSession.user_id == account.id).delete()
+    db.commit()
+    return {"message": f"{previous_role} access revoked for {account.name}."}

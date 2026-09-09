@@ -16,4 +16,5 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .operations-map .map{width:100%;height:clamp(24rem,45vh,34rem);min-height:0}
 .operations-map>p{max-width:70rem;margin:0 auto;padding:.85rem 2rem;background:#fffbeb;color:#92400e;font-weight:700}
 .admin .list>input{display:block;width:min(100%,34rem);margin:.7rem 0;padding:.75rem;border:1px solid #cbd5e1;border-radius:.7rem;background:white}
+.staff-directory{grid-column:1/-1;padding:1rem;border:1px solid #bbf7d0;border-radius:1rem;background:white}.staff-directory h3{margin:0}.staff-directory article{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem 0;border-top:1px solid #e2e8f0}.staff-directory article>span{display:grid;min-width:0}.staff-directory small{overflow-wrap:anywhere;color:#64748b}.staff-directory strong{padding:.4rem .7rem;border-radius:999px;background:#dcfce7;color:#065f46}.staff-directory button{flex:0 0 auto;background:#b91c1c}
 @media(max-width:600px){.admin>header{grid-template-columns:auto minmax(0,1fr)}.admin>header>button:last-child{grid-column:1/-1}.operations-map .map{height:24rem}.operations-map>p{padding:.8rem 1.2rem}}
