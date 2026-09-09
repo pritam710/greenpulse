@@ -1,6 +1,7 @@
 const configured = import.meta.env.VITE_API_URL;
 const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-export const API = configured || (local ? 'http://127.0.0.1:8000' : '');
+const hostedBackend = 'https://greenpulse-api-o5a2.onrender.com';
+export const API = configured || (local ? 'http://127.0.0.1:8000' : hostedBackend);
 let token = '';
 export const setToken = value => { token = value; };
 
