@@ -5,7 +5,7 @@ import { defineConfig, loadEnv } from 'vite'
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   const api = process.env.VITE_API_URL || env.VITE_API_URL;
-  const apiOrigin = api ? new URL(api).origin : '';
+  const apiOrigin = new URL(api || 'https://greenpulse-api-o5a2.onrender.com').origin;
   return {
     base: './',
     plugins: [react(), {
