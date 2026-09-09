@@ -8,6 +8,10 @@ import { AuthProvider, Access, MyReports, Operations } from './Secure';
 import { useAuth } from './auth-context';
 import { LegalFooter, LegalPage } from './Legal';
 const CAMPUS = { lat: 17.6599, lng: 75.9064 };
+const PILOT_BOUNDS = { south: 16.9, north: 18.4, west: 74.9, east: 76.9 };
+const inPilotArea = report => Number.isFinite(Number(report.location_lat)) && Number.isFinite(Number(report.location_lng)) &&
+  Number(report.location_lat) >= PILOT_BOUNDS.south && Number(report.location_lat) <= PILOT_BOUNDS.north &&
+  Number(report.location_lng) >= PILOT_BOUNDS.west && Number(report.location_lng) <= PILOT_BOUNDS.east;
 const DEMO_BINS = [
   { id: 1, name: 'Main Gate Recycling Bin', type: 'Recyclable', lat: 17.6614, lng: 75.9049 },
   { id: 2, name: 'Canteen Wet-Waste Bin', type: 'Organic', lat: 17.6588, lng: 75.9081 },
@@ -134,8 +138,9 @@ function Citizen({ home }) {
 function Map({ reports }) {
   const el=useRef(null), map=useRef(null);
   useEffect(()=>{if(!el.current||map.current)return;map.current=L.map(el.current).setView([CAMPUS.lat,CAMPUS.lng],13);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map.current);const observer=new ResizeObserver(()=>map.current?.invalidateSize());observer.observe(el.current);const resize=()=>map.current?.invalidateSize();window.addEventListener('resize',resize);setTimeout(resize,100);return()=>{observer.disconnect();window.removeEventListener('resize',resize);map.current?.remove();map.current=null}},[]);
-  useEffect(()=>{if(!map.current)return;map.current.eachLayer(x=>x instanceof L.CircleMarker&&x.remove());reports.forEach(r=>L.circleMarker([r.location_lat,r.location_lng],{radius:10,color:r.status==='Pending'?'#dc2626':'#16a34a',fillOpacity:.85}).addTo(map.current).bindPopup(Object.assign(document.createElement('span'),{textContent:`Report #${r.id} · ${r.waste_type} · ${r.status}`})));if(reports.length)map.current.fitBounds(reports.map(r=>[r.location_lat,r.location_lng]),{padding:[30,30],maxZoom:15})},[reports]);
-  return <div className="map" ref={el}/>;
+  const outliers=reports.filter(report=>!inPilotArea(report)).length;
+  useEffect(()=>{if(!map.current)return;const localReports=reports.filter(inPilotArea);map.current.eachLayer(x=>x instanceof L.CircleMarker&&x.remove());localReports.forEach(r=>L.circleMarker([r.location_lat,r.location_lng],{radius:10,color:r.status==='Pending'?'#dc2626':'#16a34a',fillOpacity:.85}).addTo(map.current).bindPopup(Object.assign(document.createElement('span'),{textContent:`Report #${r.id} · ${r.waste_type} · ${r.status}`})));if(localReports.length>1)map.current.fitBounds(localReports.map(r=>[r.location_lat,r.location_lng]),{padding:[30,30],maxZoom:15});else if(localReports.length===1)map.current.setView([localReports[0].location_lat,localReports[0].location_lng],15);else map.current.setView([CAMPUS.lat,CAMPUS.lng],13)},[reports]);
+  return <section className="operations-map" aria-label="Solapur pilot operations map"><div className="map" ref={el}/>{outliers>0&&<p role="status">⚠ {outliers} report{outliers===1?' has':'s have'} coordinates outside the Solapur pilot area and {outliers===1?'is':'are'} excluded from map zoom. Review the coordinates before assignment.</p>}</section>;
 }
 
 function Admin({home}) { return <Access role="Admin" close={home}><Operations home={home} Map={Map}/></Access>; }
