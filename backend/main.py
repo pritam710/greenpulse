@@ -8,7 +8,7 @@ import models
 from database import engine, SessionLocal
 from routers import reports, auth
 from config import settings
-from security import throttle
+from security import hash_password, next_user_id, throttle
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -21,6 +21,57 @@ if settings.bootstrap_admin_email:
         if owner and owner.role != "Admin":
             owner.role = "Admin"
             bootstrap_db.commit()
+
+def seed_judge_demo():
+    """Create one idempotent, clearly labelled demonstration workflow dataset."""
+    if not settings.seed_demo_reports:
+        return
+    with SessionLocal() as db:
+        citizen = db.query(models.User).filter(models.User.email == "judge-demo@greenpulse.local").first()
+        if citizen and db.query(models.Report).filter(models.Report.citizen_id == citizen.id).first():
+            return
+        if not citizen:
+            citizen = models.User(id=next_user_id(db), name="GreenPulse Demo Citizen",
+                                  email="judge-demo@greenpulse.local", role="Citizen",
+                                  password_hash=hash_password(secrets.token_urlsafe(32)), green_credits=0)
+            db.add(citizen); db.flush()
+        worker = db.query(models.User).filter(models.User.email == "demo-field-team@greenpulse.local").first()
+        if not worker:
+            worker = models.User(id=next_user_id(db), name="Demo Field Team",
+                                 email="demo-field-team@greenpulse.local", role="Driver",
+                                 password_hash=hash_password(secrets.token_urlsafe(32)), green_credits=0)
+            db.add(worker); db.flush()
+        owner = db.query(models.User).filter(models.User.email == settings.bootstrap_admin_email.strip().lower()).first() or worker
+        samples = [
+            ("Overflowing mixed waste near college canteen", "High", "Pending", 17.6599, 75.9064),
+            ("Plastic bottles beside bus stop", "Medium", "Assigned", 17.6622, 75.9101),
+            ("Wet waste accumulation at vegetable market", "Critical", "In progress", 17.6548, 75.9018),
+            ("Construction debris obstructing roadside", "High", "Cleaning", 17.6684, 75.9152),
+            ("Sanitary waste near public facility", "High", "Resolved", 17.6507, 75.9138),
+            ("Recyclable paper and cardboard pile", "Low", "Verified", 17.6651, 75.8976),
+        ]
+        stages = ["Pending", "Assigned", "In progress", "Cleaning", "Resolved", "Verified"]
+        proof = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        for waste_type, severity, status, lat, lng in samples:
+            report = models.Report(citizen_id=citizen.id, image_url="", location_lat=lat,
+                                   location_lng=lng, waste_type=waste_type, severity=severity, status=status)
+            db.add(report); db.flush()
+            reached = stages.index(status)
+            workflow = models.ReportWorkflow(report_id=report.id,
+                assigned_to=worker.id if reached >= 1 else None,
+                completion_note="Waste collected, segregated and transferred to the designated facility." if reached >= 4 else "",
+                proof_image_url=proof if reached >= 4 else "",
+                verification_note="Completion evidence checked by the municipal administrator." if reached >= 5 else "",
+                reward_points=20 if reached >= 5 else 0)
+            db.add(workflow)
+            db.add(models.AuditEvent(report_id=report.id, actor_id=citizen.id, action="Judge demo report submitted"))
+            for index, stage in enumerate(stages[1:reached + 1], start=1):
+                actor = worker if index in (2, 3, 4) else owner
+                db.add(models.AuditEvent(report_id=report.id, actor_id=actor.id, action=f"Status changed to {stage}"))
+        citizen.green_credits = 20
+        db.commit()
+
+seed_judge_demo()
 
 production = settings.environment == "production"
 origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]

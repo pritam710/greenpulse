@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, readPhoto, setToken } from './api';
+import { api, hasToken, readPhoto, setToken } from './api';
 import './security.css';
 import { Auth, useAuth } from './auth-context';
 
@@ -13,7 +13,9 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const expired = () => { setUser(null); setError('Session expired. Please sign in again.'); };
     window.addEventListener('greenpulse-session-expired', expired);
-    return () => window.removeEventListener('greenpulse-session-expired', expired);
+    let active = true;
+    if (hasToken()) api('/auth/me').then(account => { if (active) setUser(account); }).catch(e => { if (active) setError(e.message); });
+    return () => { active = false; window.removeEventListener('greenpulse-session-expired', expired); };
   }, []);
   async function logout() {
     try {
@@ -66,7 +68,7 @@ export function Access({ role, children, close }) {
     <form onSubmit={submit}>{register && <label>Name<input name="name" required maxLength={80} autoComplete="name"/></label>}
       <label>Email<input name="email" type="email" required maxLength={254} autoComplete="username"/></label>
       <label>Password<input name="password" type="password" required minLength={12} maxLength={128} autoComplete={register ? 'new-password' : 'current-password'}/></label>
-      <small>At least 12 characters. Sessions stay in memory and end on page reload.</small>
+      <small>At least 12 characters. Sign-in survives reloads in this tab; sign out when using a shared device.</small>
       {register && <><label className="consent"><input name="legal-consent" type="checkbox" required/><span>I agree to the <a href="?policy=terms" target="_blank" rel="noreferrer">Terms and Conditions</a> and acknowledge the <a href="?policy=privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</span></label><p className="legal-notice">Create an account only if you are 18 or older. A supervised institutional pilot involving children requires an approved guardian-consent process.</p></>}
       <button type="submit" className="dark" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create citizen account' : 'Sign in to GreenPulse'}</button>
     </form>{message && <p role="status">{message}</p>}{role === 'Citizen' && <button type="button" onClick={() => { setRegister(!register); setMessage(''); }}>{register ? 'Use an existing account' : 'Create a citizen account'}</button>}

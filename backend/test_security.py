@@ -15,6 +15,7 @@ os.environ["ALLOWED_ORIGINS"] = "http://localhost:5173"
 
 from fastapi.testclient import TestClient
 from PIL import Image
+import main
 from main import app
 from database import engine, SessionLocal
 import models
@@ -105,6 +106,24 @@ class SecurityTests(unittest.TestCase):
                 self.assertEqual(db.get(models.User, 5).role, "Disabled")
         finally:
             settings.bootstrap_admin_email = previous
+
+    def test_judge_demo_seed_is_idempotent(self):
+        previous_seed = settings.seed_demo_reports
+        previous_owner = settings.bootstrap_admin_email
+        settings.seed_demo_reports = True
+        settings.bootstrap_admin_email = "test3@example.test"
+        try:
+            main.seed_judge_demo()
+            main.seed_judge_demo()
+            with SessionLocal() as db:
+                demo = db.query(models.User).filter_by(email="judge-demo@greenpulse.local").one()
+                reports = db.query(models.Report).filter_by(citizen_id=demo.id).all()
+                self.assertEqual(len(reports), 6)
+                self.assertEqual({report.status for report in reports},
+                                 {"Pending", "Assigned", "In progress", "Cleaning", "Resolved", "Verified"})
+        finally:
+            settings.seed_demo_reports = previous_seed
+            settings.bootstrap_admin_email = previous_owner
 
     def test_full_flow_rewards_and_no_replay(self):
         rid = self.create()

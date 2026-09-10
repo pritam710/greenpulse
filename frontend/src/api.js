@@ -2,8 +2,14 @@ const configured = import.meta.env.VITE_API_URL;
 const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const hostedBackend = 'https://greenpulse-api-o5a2.onrender.com';
 export const API = configured || (local ? 'http://127.0.0.1:8000' : hostedBackend);
+const tokenKey = 'greenpulse-session';
 let token = '';
-export const setToken = value => { token = value; };
+try { token = sessionStorage.getItem(tokenKey) || ''; } catch { token = ''; }
+export const hasToken = () => Boolean(token);
+export const setToken = value => {
+  token = value || '';
+  try { if (token) sessionStorage.setItem(tokenKey, token); else sessionStorage.removeItem(tokenKey); } catch { /* Use the in-memory session when storage is unavailable. */ }
+};
 
 export async function api(path, options = {}) {
   if (!API) throw new Error('The secure server has not been connected to this hosted demo yet.');
@@ -18,7 +24,7 @@ export async function api(path, options = {}) {
   const data = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
     if (response.status === 401 && token) {
-      token = '';
+      setToken('');
       window.dispatchEvent(new Event('greenpulse-session-expired'));
     }
     throw new Error(typeof data?.detail === 'string' ? data.detail : 'Request could not be completed.');
