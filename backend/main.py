@@ -1,5 +1,6 @@
 import logging
 import secrets
+import threading
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -71,7 +72,9 @@ def seed_judge_demo():
         citizen.green_credits = 20
         db.commit()
 
-seed_judge_demo()
+if settings.seed_demo_reports:
+    # Do not make Render's health check wait for a sleeping free database.
+    threading.Thread(target=seed_judge_demo, name="greenpulse-demo-seed", daemon=True).start()
 
 production = settings.environment == "production"
 origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
