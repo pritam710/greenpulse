@@ -21,6 +21,10 @@ services:
         fromDatabase:
           name: greenpulse-pilot-db
           property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
 databases:
   - name: greenpulse-pilot-db
     plan: free

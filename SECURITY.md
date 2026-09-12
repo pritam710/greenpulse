@@ -23,6 +23,14 @@ government security certification or an independent penetration test.
   double-crediting. No balance/role/status supplied by the browser is trusted.
 - Photos: JPEG/PNG/WebP, 2 MB input and stored limit, 16 megapixel limit, actual
   image decoding and re-encoding to remove metadata. Whole requests capped at 3 MB.
+- Cloud waste classification is available only to authenticated Citizen accounts,
+  requires explicit versioned consent, accepts at most three metadata-stripped
+  photos (2 MB combined), and is limited to ten requests per account per hour.
+  Photos, descriptions and classification results are not stored by the classifier.
+- Classifier output is constrained to a server-validated schema. The server owns
+  the stream, bin and safety guidance mapping, forces uncertain results to request
+  more evidence, and does not present a model-generated percentage as calibrated
+  confidence. High-risk or unknown waste is routed to trained human handling.
 - Login, registration, submission, workflow and general request throttles.
 - Explicit CORS origins, generic non-echoing validation/errors, no-store API
   responses, nosniff/frame protection, production HSTS and disabled API docs.
@@ -60,6 +68,8 @@ Use one Admin, one Driver and two Citizen accounts to rehearse access boundaries
    operator credentials. Do not expose the development server or SQLite file.
 2. Set `ENVIRONMENT=production` and `ALLOWED_ORIGINS` to exact frontend origins,
    e.g. `https://pritam710.github.io` (origins do not include `/Green-Pulse/`).
+   Add `GEMINI_API_KEY` only through the host's secret environment settings; never
+   commit it. Review Google's data terms and the updated notice before real use.
 3. Set `VITE_API_URL` to the HTTPS backend URL BEFORE `npm run build`. It is public
    configuration, not a secret. A hosted build without this setting fails closed.
 4. Deploy frontend and backend together, test all three roles, and confirm the new
@@ -99,7 +109,12 @@ npm run build
 Coverage includes anonymous access, ownership, role injection, assigned-worker
 access, workflow ordering, mandatory proof, fixed reward calculation, replay,
 zero reward for no waste, session expiry/logout, login rate limits, invalid photos,
-request limits, response redaction, CORS and legacy orphan ownership.
+request limits, response redaction, CORS, legacy orphan ownership, classifier
+authentication/consent, multi-photo validation, abstention and AI quota limiting.
+
+The classifier tests mock the external model and verify the API/security contract;
+they do not measure recognition accuracy. A labelled local waste dataset, confusion
+matrix and field evaluation are required before claiming a production accuracy rate.
 
 Browser smoke testing used a separate QA database: sign-in and authenticated
 report submission were verified without changing the real project database.

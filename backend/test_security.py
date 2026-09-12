@@ -7,6 +7,7 @@ import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 _directory = tempfile.TemporaryDirectory(prefix="greenpulse-security-")
 os.environ["DATABASE_URL"] = "sqlite:///" + (Path(_directory.name) / "test.db").as_posix()
@@ -21,6 +22,7 @@ from database import engine, SessionLocal
 import models
 import security
 from config import settings
+from routers import classification
 
 class SecurityTests(unittest.TestCase):
     @classmethod
@@ -58,6 +60,15 @@ class SecurityTests(unittest.TestCase):
 
     def move(self, rid, uid, status, **extra):
         return self.client.patch(f'/reports/{rid}/status', headers=self.headers(uid), json={"status": status, **extra})
+
+    def classification_body(self, images=None, **extra):
+        return {
+            "images": images or [self.photo],
+            "description": "Discarded drink bottle",
+            "consent_accepted": True,
+            "policy_version": "2026-09-12",
+            **extra,
+        }
 
     def test_anonymous_and_ownership(self):
         self.assertEqual(self.client.get('/reports').status_code, 401)
@@ -197,6 +208,145 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(self.client.post('/reports', headers=self.headers(), content=b'x' * (3 * 1024 * 1024 + 1)).status_code, 413)
         rid = self.create()
         self.assertTrue(self.client.get(f'/reports/{rid}', headers=self.headers()).json()['image_url'].startswith('data:image/jpeg;base64,'))
+
+    def test_classification_requires_citizen_consent_and_configuration(self):
+        body = self.classification_body()
+        self.assertEqual(self.client.post('/classification', json=body).status_code, 401)
+        self.assertEqual(self.client.post('/classification', headers=self.headers(3), json=body).status_code, 403)
+        no_consent = {key: value for key, value in body.items() if key != 'consent_accepted'}
+        self.assertEqual(self.client.post('/classification', headers=self.headers(), json=no_consent).status_code, 422)
+        wrong_policy = {**body, "policy_version": "2026-09-06"}
+        self.assertEqual(self.client.post('/classification', headers=self.headers(), json=wrong_policy).status_code, 422)
+        previous = settings.gemini_api_key
+        settings.gemini_api_key = ""
+        try:
+            response = self.client.post('/classification', headers=self.headers(), json=body)
+            self.assertEqual(response.status_code, 503)
+            self.assertIn('not configured', response.json()['detail'])
+            with SessionLocal() as db:
+                self.assertEqual(db.query(models.ConsentEvent).count(), 0)
+        finally:
+            settings.gemini_api_key = previous
+
+    def test_classification_is_structured_private_and_multi_photo(self):
+        proposal = classification.ModelClassification(
+            decision="classified", certainty="clear", item="plastic drink bottle",
+            material="Plastic", reason="Bottle shape and plastic body are clearly visible",
+            alternatives=[],
+        )
+        previous = settings.gemini_api_key
+        settings.gemini_api_key = "test-key"
+        try:
+            with patch('routers.classification._call_gemini', return_value=proposal) as classify_mock:
+                response = self.client.post(
+                    '/classification', headers=self.headers(),
+                    json=self.classification_body(images=[self.photo, self.photo]),
+                )
+            self.assertEqual(response.status_code, 200, response.text)
+            result = response.json()
+            self.assertEqual(result['decision'], 'classified')
+            self.assertEqual(result['status'], 'classified')
+            self.assertEqual(result['material'], 'Plastic')
+            self.assertEqual(result['stream'], 'Dry')
+            self.assertEqual(result['bin']['color'], 'blue')
+            self.assertIsNone(result['recyclable'])
+            self.assertNotIn('confidence', result)
+            self.assertNotIn('images', result)
+            sent = classify_mock.call_args.args[0]
+            self.assertEqual(len(sent.images), 2)
+            self.assertTrue(all(image.startswith('data:image/jpeg;base64,') for image in sent.images))
+            with SessionLocal() as db:
+                events = db.query(models.ConsentEvent).all()
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].purpose, 'Cloud AI waste classification')
+                self.assertEqual(events[0].policy_version, '2026-09-12')
+                self.assertEqual(db.query(models.Report).count(), 0)
+        finally:
+            settings.gemini_api_key = previous
+
+    def test_classification_abstains_when_model_is_uncertain(self):
+        proposal = classification.ModelClassification(
+            decision="classified", certainty="uncertain", item="partly hidden container",
+            material="Plastic", reason="The material is obscured",
+            alternatives=["Metal", "Mixed or composite"],
+        )
+        previous = settings.gemini_api_key
+        settings.gemini_api_key = "test-key"
+        try:
+            with patch('routers.classification._call_gemini', return_value=proposal):
+                response = self.client.post('/classification', headers=self.headers(),
+                                            json=self.classification_body())
+            self.assertEqual(response.status_code, 200, response.text)
+            result = response.json()
+            self.assertEqual(result['decision'], 'need_more_photos')
+            self.assertEqual(result['status'], 'needs_more_evidence')
+            self.assertTrue(result['needs_more_information'])
+            self.assertTrue(result['follow_up_question'])
+            self.assertTrue(result['user_review']['can_correct'])
+        finally:
+            settings.gemini_api_key = previous
+
+    def test_classification_does_not_invent_official_bin_colours(self):
+        special = classification._normalise(classification.ModelClassification(
+            decision="classified", certainty="clear", item="used battery",
+            material="E-waste", reason="A battery form and terminals are visible",
+        ))
+        self.assertEqual(special.stream, 'Special care')
+        self.assertEqual(special.bin.color, '')
+        self.assertIn('No standard bin colour', special.bin.label)
+
+        not_waste = classification._normalise(classification.ModelClassification(
+            decision="not_waste", certainty="clear", item="park bench",
+            material="Not waste", reason="The object is installed street furniture",
+        ))
+        self.assertEqual(not_waste.decision, 'not_waste')
+        self.assertIn('not to be waste', not_waste.guidance)
+        self.assertNotIn('Isolate', not_waste.guidance)
+
+    def test_classification_limits_images_and_redacts_provider_failure(self):
+        self.assertEqual(self.client.post(
+            '/classification', headers=self.headers(),
+            json=self.classification_body(images=[self.photo] * 4),
+        ).status_code, 422)
+        self.assertEqual(self.client.post(
+            '/classification', headers=self.headers(),
+            json=self.classification_body(images=['data:image/svg+xml;base64,PHN2Zz4=']),
+        ).status_code, 422)
+        oversized = "data:image/jpeg;base64," + base64.b64encode(
+            b'x' * (classification.MAX_TOTAL_IMAGE_BYTES // 2 + 1)).decode()
+        with patch('routers.classification.validate_image', return_value=oversized):
+            with self.assertRaises(ValueError):
+                classification.ClassificationRequest(**self.classification_body(images=['a', 'b']))
+
+        previous = settings.gemini_api_key
+        settings.gemini_api_key = "test-key"
+        try:
+            with patch('routers.classification._call_gemini', side_effect=RuntimeError('secret-provider-detail')):
+                response = self.client.post('/classification', headers=self.headers(),
+                                            json=self.classification_body())
+            self.assertEqual(response.status_code, 503)
+            self.assertNotIn('secret-provider-detail', response.text)
+            self.assertIn('No result was saved', response.json()['detail'])
+        finally:
+            settings.gemini_api_key = previous
+
+    def test_classification_is_throttled_per_citizen(self):
+        proposal = classification.ModelClassification(
+            decision="classified", certainty="clear", item="food peel",
+            material="Organic or food", reason="A food peel is clearly visible",
+        )
+        previous = settings.gemini_api_key
+        settings.gemini_api_key = "test-key"
+        try:
+            with patch('routers.classification._call_gemini', return_value=proposal):
+                for _ in range(10):
+                    response = self.client.post('/classification', headers=self.headers(),
+                                                json=self.classification_body())
+                    self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(self.client.post('/classification', headers=self.headers(),
+                                                  json=self.classification_body()).status_code, 429)
+        finally:
+            settings.gemini_api_key = previous
 
     def test_cors_and_no_store(self):
         bad = self.client.options('/reports', headers={"Origin": "https://attacker.example", "Access-Control-Request-Method": "GET"})

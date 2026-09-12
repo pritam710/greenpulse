@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import models
 from database import engine, SessionLocal
-from routers import reports, auth
+from routers import reports, auth, classification
 from config import settings
 from security import hash_password, next_user_id, throttle
 
@@ -132,6 +132,7 @@ app.add_middleware(
 
 app.include_router(reports.router)
 app.include_router(auth.router)
+app.include_router(classification.router)
 
 @app.get("/")
 def read_root():

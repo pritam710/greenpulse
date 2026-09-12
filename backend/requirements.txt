@@ -4,5 +4,5 @@ sqlalchemy
 pydantic
 pydantic-settings
 python-multipart
-google-genai
+google-genai>=2.21,<3
 Pillow>=11.0
