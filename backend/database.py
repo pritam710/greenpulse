@@ -3,6 +3,10 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from config import settings
 
 database_url = settings.database_url
+if settings.environment.strip().lower() == "production" and not database_url.lower().startswith(
+    ("postgres://", "postgresql://")
+):
+    raise RuntimeError("Production requires a PostgreSQL DATABASE_URL; refusing ephemeral local storage.")
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
 elif database_url.startswith("postgresql://"):

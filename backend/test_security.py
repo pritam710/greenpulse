@@ -118,6 +118,16 @@ class SecurityTests(unittest.TestCase):
         finally:
             settings.bootstrap_admin_email = previous
 
+    def test_cors_preflight_allows_staff_revocation(self):
+        response = self.client.options('/auth/staff/5', headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "DELETE",
+            "Access-Control-Request-Headers": "authorization",
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers.get("access-control-allow-origin"), "http://localhost:5173")
+        self.assertIn("DELETE", response.headers.get("access-control-allow-methods", ""))
+
     def test_judge_demo_seed_is_idempotent(self):
         previous_seed = settings.seed_demo_reports
         previous_owner = settings.bootstrap_admin_email
