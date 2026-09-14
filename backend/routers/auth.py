@@ -109,8 +109,8 @@ def staff(user=Depends(current_user), db: Session = Depends(get_db)):
 @router.post("/staff", status_code=201)
 def create_staff(body: StaffRegistration, request: Request,
                  user=Depends(current_user), db: Session = Depends(get_db)):
-    if user.role != "Admin":
-        raise HTTPException(403, "Administrator access required.")
+    if not is_owner(user):
+        raise HTTPException(403, "Owner access required.")
     throttle(("staff-create", user.id), 10, 3600)
     staff_user = models.User(id=next_user_id(db), name=body.name, email=body.email,
                              password_hash=hash_password(body.password), role=body.role,

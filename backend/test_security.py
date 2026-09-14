@@ -37,7 +37,7 @@ class SecurityTests(unittest.TestCase):
         self.client = TestClient(app)
         self.password = "unique-test-password-123"
         with SessionLocal() as db:
-            for uid, role in [(1, "Citizen"), (2, "Citizen"), (3, "Admin"), (4, "Driver"), (5, "Driver")]:
+            for uid, role in [(1, "Citizen"), (2, "Citizen"), (3, "Admin"), (4, "Driver"), (5, "Driver"), (6, "Admin")]:
                 db.add(models.User(id=uid, name=f"Test {uid}", email=f"test{uid}@example.test", role=role,
                                    password_hash=security.hash_password(self.password), green_credits=0))
                 db.add(models.AuthSession(token_hash=security.token_hash(f"test-token-{uid}"), user_id=uid,
@@ -91,15 +91,21 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.client.get('/auth/staff', headers=self.headers()).status_code, 403)
 
-    def test_only_admin_can_create_staff_accounts(self):
+    def test_only_owner_can_create_staff_accounts(self):
         body = {"name": "Ward Admin", "email": "ward-admin@example.test",
                 "password": self.password, "role": "Admin"}
-        self.assertEqual(self.client.post('/auth/staff', headers=self.headers(1), json=body).status_code, 403)
-        created = self.client.post('/auth/staff', headers=self.headers(3), json=body)
-        self.assertEqual(created.status_code, 201, created.text)
-        self.assertEqual(created.json()["user"]["role"], "Admin")
-        self.assertNotIn("password_hash", created.text)
-        self.assertEqual(self.client.post('/auth/staff', headers=self.headers(3), json=body).status_code, 409)
+        previous = settings.bootstrap_admin_email
+        settings.bootstrap_admin_email = "test3@example.test"
+        try:
+            self.assertEqual(self.client.post('/auth/staff', headers=self.headers(1), json=body).status_code, 403)
+            self.assertEqual(self.client.post('/auth/staff', headers=self.headers(6), json=body).status_code, 403)
+            created = self.client.post('/auth/staff', headers=self.headers(3), json=body)
+            self.assertEqual(created.status_code, 201, created.text)
+            self.assertEqual(created.json()["user"]["role"], "Admin")
+            self.assertNotIn("password_hash", created.text)
+            self.assertEqual(self.client.post('/auth/staff', headers=self.headers(3), json=body).status_code, 409)
+        finally:
+            settings.bootstrap_admin_email = previous
 
     def test_only_owner_can_revoke_staff_access(self):
         previous = settings.bootstrap_admin_email
