@@ -102,6 +102,140 @@ export function MyReports({ close }) {
     <button className="dark" onClick={close}>Close</button></section></div>;
 }
 
+const WORKER_STAGES = ['Assigned', 'In progress', 'Cleaning', 'Resolved', 'Verified'];
+const WORKER_COMPLETE = new Set(['Verified', 'Citizen confirmed']);
+const statusClass = status => status.toLowerCase().replaceAll(' ', '-');
+const taskButtonLabel = status => ({
+  Assigned: 'Open task',
+  'In progress': 'Continue inspection',
+  Cleaning: 'Finish and add proof',
+  Resolved: 'View proof status',
+  Verified: 'View completed task',
+  'Citizen confirmed': 'View completed task',
+}[status] || 'View task');
+const formatTaskTime = value => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Time unavailable' : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+};
+const formatCoordinates = report => `${Number(report.location_lat).toFixed(5)}, ${Number(report.location_lng).toFixed(5)}`;
+
+export function FieldWorkerOperations({ home }) {
+  const { rows, message, setMessage, load } = useReports();
+  const { user } = useAuth();
+  const [query, setQuery] = useState(''), [scope, setScope] = useState('active');
+  const [selected, setSelected] = useState(null), [audit, setAudit] = useState([]);
+  const [busy, setBusy] = useState(false), [proof, setProof] = useState('');
+  const dialog = useRef(null), previousFocus = useRef(null);
+
+  useEffect(() => {
+    if (!selected) return;
+    previousFocus.current = document.activeElement;
+    dialog.current?.querySelector('button, [href], input, textarea')?.focus();
+    return () => previousFocus.current?.focus?.();
+  }, [selected]);
+
+  function dialogKeys(event) {
+    if (event.key === 'Escape' && !busy) { setSelected(null); return; }
+    if (event.key !== 'Tab') return;
+    const items = [...dialog.current.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])')];
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+
+  async function inspect(id) {
+    setBusy(true); setMessage('Loading task details…');
+    try {
+      const [report, history] = await Promise.all([api(`/reports/${id}`), api(`/reports/${id}/audit`)]);
+      setSelected(report); setAudit(history); setProof(''); setMessage('Task details loaded.');
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function advance(status, extra = {}) {
+    if (!selected) return;
+    const reportId = selected.id;
+    setBusy(true); setMessage('Saving task update…');
+    try {
+      await api(`/reports/${reportId}/status`, { method: 'PATCH', body: JSON.stringify({ status, ...extra }) });
+      setSelected(null); setProof(''); await load();
+      setMessage(`Task #${reportId} updated to ${status}.`);
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function complete(event) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    await advance('Resolved', { completion_note: values.get('note'), proof_image_url: proof });
+  }
+
+  const counts = {
+    assigned: rows.filter(row => row.status === 'Assigned').length,
+    inspection: rows.filter(row => row.status === 'In progress').length,
+    cleaning: rows.filter(row => row.status === 'Cleaning').length,
+    review: rows.filter(row => row.status === 'Resolved').length,
+  };
+  const normalizedQuery = query.trim().toLowerCase();
+  const visible = rows.filter(row => {
+    const complete = WORKER_COMPLETE.has(row.status);
+    if (scope === 'active' && complete) return false;
+    if (scope === 'completed' && !complete) return false;
+    return `${row.id} ${row.waste_type} ${row.severity} ${row.status} ${row.location_lat} ${row.location_lng}`.toLowerCase().includes(normalizedQuery);
+  }).sort((a, b) => {
+    const stage = status => WORKER_STAGES.indexOf(status) < 0 ? WORKER_STAGES.length : WORKER_STAGES.indexOf(status);
+    const priority = { Critical: 4, High: 3, Medium: 2, Low: 1 };
+    return stage(a.status) - stage(b.status) || (priority[b.severity] || 0) - (priority[a.severity] || 0) || b.id - a.id;
+  });
+  const selectedStage = selected ? (selected.status === 'Citizen confirmed' ? WORKER_STAGES.length - 1 : WORKER_STAGES.indexOf(selected.status)) : -1;
+
+  return <main className="staff" id="main-content">
+    <header className="worker-header">
+      <button type="button" onClick={home}>← Home</button>
+      <div><span className="worker-kicker">Field operations</span><h1>My assigned work</h1><p>{user?.name} · Only tasks assigned to this account</p></div>
+      <button type="button" onClick={load} disabled={busy}>Refresh tasks</button>
+    </header>
+    <section className="staff-summary" aria-label="Assignment summary">
+      <div><b>{counts.assigned}</b><span>New assignments</span></div>
+      <div><b>{counts.inspection}</b><span>In inspection</span></div>
+      <div><b>{counts.cleaning}</b><span>Being cleaned</span></div>
+      <div><b>{counts.review}</b><span>Awaiting verification</span></div>
+    </section>
+    <section className="worker-toolbar" aria-labelledby="worker-queue-title">
+      <div><h2 id="worker-queue-title">Assigned task queue</h2><p>Open a task, follow its stage, and upload completion proof from the site.</p></div>
+      <label><span>Show</span><select value={scope} onChange={event => setScope(event.target.value)}><option value="active">Active work</option><option value="completed">Completed history</option><option value="all">All assigned tasks</option></select></label>
+      <label><span>Find a task</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Task number, waste or status"/></label>
+    </section>
+    <p className="worker-message" role="status" aria-live="polite">{message}</p>
+    <section className="task-list" aria-label="Field-worker tasks">
+      {!visible.length && <div className="empty"><span aria-hidden="true">✓</span><h2>{rows.length ? 'No tasks match this view' : 'No tasks assigned yet'}</h2><p>{rows.length ? 'Change the filter or search to see another task.' : `When an administrator assigns work to ${user?.name || 'you'}, it will appear here.`}</p></div>}
+      {visible.map(report => <article className={`worker-task priority-${report.severity.toLowerCase()}`} key={report.id}>
+        <div className="task-head"><span><small>Task #{report.id}</small><b>{report.waste_type}</b></span><span className={`status ${statusClass(report.status)}`}>{report.status}</span></div>
+        <dl className="task-meta"><div><dt>Priority</dt><dd>{report.severity}</dd></div><div><dt>Submitted</dt><dd>{formatTaskTime(report.created_at)}</dd></div><div><dt>Location</dt><dd>{formatCoordinates(report)}</dd></div></dl>
+        <div className="task-actions"><span>{WORKER_COMPLETE.has(report.status) ? 'Work complete' : report.status === 'Resolved' ? 'Proof sent to administrator' : 'Action available'}</span><button type="button" disabled={busy} onClick={() => inspect(report.id)}>{taskButtonLabel(report.status)}</button></div>
+      </article>)}
+    </section>
+    {selected && <div className="shade" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setSelected(null); }}><section ref={dialog} className="modal worker-detail" role="dialog" aria-modal="true" aria-labelledby="worker-task-title" onKeyDown={dialogKeys}>
+      <header><div><span className="worker-kicker">Assigned to {user?.name}</span><h2 id="worker-task-title">Task #{selected.id}</h2><p>{selected.waste_type}</p></div><button type="button" className="modal-close" onClick={() => setSelected(null)} disabled={busy} aria-label="Close task details">×</button></header>
+      <div className="worker-detail-badges"><span className={`status ${statusClass(selected.status)}`}>{selected.status}</span><span className={`priority-label priority-${selected.severity.toLowerCase()}`}>{selected.severity} priority</span></div>
+      <ol className="worker-flow" aria-label={`Task progress: ${selected.status}`}>{WORKER_STAGES.map((stage, index) => <li className={index <= selectedStage ? 'done' : ''} key={stage}><span aria-hidden="true">{index < selectedStage ? '✓' : index === selectedStage ? '●' : '○'}</span>{stage}</li>)}</ol>
+      <section className="task-location"><h3>Where to go</h3><p>{formatCoordinates(selected)}</p><a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${selected.location_lat},${selected.location_lng}`)}`} target="_blank" rel="noreferrer">Open directions in Google Maps ↗</a><small>Opening directions shares these coordinates with Google only after you choose the link.</small></section>
+      <section><h3>Reported evidence</h3>{selected.image_url?.startsWith('data:image/') ? <img className="evidence" src={selected.image_url} alt={`Waste reported for task ${selected.id}`}/> : <p>No report photo was provided.</p>}</section>
+      {selected.completion_note && <section className="completion-note"><h3>Completion note</h3><p>{selected.completion_note}</p></section>}
+      {selected.proof_image_url?.startsWith('data:image/') && <section><h3>Completion evidence</h3><img className="evidence" src={selected.proof_image_url} alt={`Cleaning completion for task ${selected.id}`}/></section>}
+      {selected.status === 'Assigned' && <button type="button" className="worker-primary" disabled={busy} onClick={() => advance('In progress')}>{busy ? 'Saving…' : 'Start inspection'}</button>}
+      {selected.status === 'In progress' && <button type="button" className="worker-primary" disabled={busy} onClick={() => advance('Cleaning')}>{busy ? 'Saving…' : 'Inspection complete — start cleaning'}</button>}
+      {selected.status === 'Cleaning' && <form className="completion-form" onSubmit={complete}><h3>Complete this task</h3><label>Cleaning and disposal notes<textarea name="note" required minLength={10} maxLength={1000} placeholder="What was collected, segregated and disposed of?"/></label><label className="proof-field">Completion photo (JPEG, PNG or WebP)<input type="file" required accept="image/jpeg,image/png,image/webp" capture="environment" onChange={async event => { try { const photo = await readPhoto(event.target.files?.[0]); setProof(photo); setMessage('Completion photo ready to submit.'); } catch (error) { setProof(''); setMessage(error.message); } }}/></label>{proof && <img className="evidence proof-preview" src={proof} alt="New completion proof preview"/>}<button type="submit" className="worker-primary" disabled={busy || !proof}>{busy ? 'Submitting proof…' : 'Submit completion proof'}</button></form>}
+      {selected.status === 'Resolved' && <p className="worker-callout">Completion proof submitted. This task is waiting for administrator verification.</p>}
+      {selected.status === 'Verified' && <p className="worker-callout success">An administrator verified this task. No further field action is required.</p>}
+      {selected.status === 'Citizen confirmed' && <p className="worker-callout success">The citizen confirmed that the issue was resolved.</p>}
+      <section className="worker-audit"><h3>Server-recorded task history</h3>{audit.length ? <ol>{audit.map((entry, index) => <li key={`${entry.time}-${index}`}><b>{entry.action}</b><time>{formatTaskTime(entry.time)}</time></li>)}</ol> : <p>No history is available.</p>}</section>
+      <p role="status" aria-live="polite">{message}</p><button type="button" className="worker-secondary" disabled={busy} onClick={() => setSelected(null)}>Close task</button>
+    </section></div>}
+  </main>;
+}
+
 export function Operations({ home, Map, staffMode = false }) {
   const { rows, message, setMessage, load } = useReports();
   const { user } = useAuth();

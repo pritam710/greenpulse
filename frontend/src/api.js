@@ -34,12 +34,36 @@ export async function api(path, options = {}) {
 
 export async function readPhoto(file) {
   if (!file) return '';
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024)
-    throw new Error('Choose a JPEG, PNG or WebP photo under 2 MB.');
-  return new Promise((resolve, reject) => {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 15 * 1024 * 1024)
+    throw new Error('Choose a JPEG, PNG or WebP photo under 15 MB.');
+  const source = await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(new Error('Could not read photo.'));
     reader.readAsDataURL(file);
   });
+  const targetLength = 800 * 1024;
+  if (source.length <= targetLength) return source;
+
+  const image = await new Promise((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => resolve(element);
+    element.onerror = () => reject(new Error('Could not prepare this photo.'));
+    element.src = source;
+  });
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not prepare this photo.');
+  for (const maxSide of [1600, 1400, 1200, 1000]) {
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.82, 0.72, 0.62, 0.52]) {
+      const compressed = canvas.toDataURL('image/jpeg', quality);
+      if (compressed.length <= targetLength) return compressed;
+    }
+  }
+  throw new Error('This photo is still too large. Retake it at a lower camera resolution.');
 }

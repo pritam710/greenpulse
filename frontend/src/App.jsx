@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import './App.css';
 
 import { api, readPhoto } from './api';
-import { AuthProvider, Access, MyReports, Operations } from './Secure';
+import { AuthProvider, Access, FieldWorkerOperations, MyReports, Operations } from './Secure';
 import { useAuth } from './auth-context';
 import { LegalFooter, LegalPage } from './Legal';
 const CAMPUS = { lat: 17.6599, lng: 75.9064 };
@@ -277,8 +277,32 @@ function Map({ reports }) {
 }
 
 function Admin({home}) { return <Access role="Admin" close={home}><Operations home={home} Map={Map}/></Access>; }
-function Staff({home}) { return <Access role="Driver" close={home}><Operations home={home} staffMode Map={Map}/></Access>; }
+function Staff({home}) { return <Access role="Driver" close={home}><FieldWorkerOperations home={home}/></Access>; }
 
-function AppContent(){const initialPolicy=new URLSearchParams(window.location.search).get('policy');const[view,setView]=useState(initialPolicy?'legal':'citizen');const[policy,setPolicy]=useState(initialPolicy||'privacy');const[online,setOnline]=useState(navigator.onLine);useEffect(()=>{const yes=()=>setOnline(true),no=()=>setOnline(false);window.addEventListener('online',yes);window.addEventListener('offline',no);return()=>{window.removeEventListener('online',yes);window.removeEventListener('offline',no)}},[]);function openPolicy(id){setPolicy(id);setView('legal');window.history.replaceState({},'',`?policy=${id}`);window.scrollTo(0,0)}function home(){window.history.replaceState({},'',window.location.pathname);setView('citizen');window.scrollTo(0,0)}if(view==='legal')return <LegalPage page={policy} onBack={home}/>;return <><div className={`network ${online?'online':'offline'}`}>{online?'Online':'Offline — reporting and status updates unavailable'}</div>{view==='citizen'?<Citizen home={()=>setView('home')}/>:view==='admin'?<Admin home={()=>setView('home')}/>:view==='staff'?<Staff home={()=>setView('home')}/>:<Landing citizen={()=>setView('citizen')} admin={()=>setView('admin')} staff={()=>setView('staff')}/>}<LegalFooter onOpen={openPolicy}/></>}
+function AppContent() {
+  const initialPolicy = new URLSearchParams(window.location.search).get('policy');
+  const [view, setView] = useState(initialPolicy ? 'legal' : 'citizen');
+  const [policy, setPolicy] = useState(initialPolicy || 'privacy');
+  const [online, setOnline] = useState(navigator.onLine);
+  const { user } = useAuth();
+  const restoredSessionRouted = useRef(false);
+
+  useEffect(() => {
+    const yes = () => setOnline(true), no = () => setOnline(false);
+    window.addEventListener('online', yes); window.addEventListener('offline', no);
+    return () => { window.removeEventListener('online', yes); window.removeEventListener('offline', no); };
+  }, []);
+  useEffect(() => {
+    if (restoredSessionRouted.current || initialPolicy || !user) return;
+    restoredSessionRouted.current = true;
+    const destination = user.role === 'Driver' ? 'staff' : user.role === 'Admin' ? 'admin' : '';
+    if (destination) queueMicrotask(() => setView(destination));
+  }, [initialPolicy, user]);
+
+  function openPolicy(id) { setPolicy(id); setView('legal'); window.history.replaceState({}, '', `?policy=${id}`); window.scrollTo(0, 0); }
+  function home() { window.history.replaceState({}, '', window.location.pathname); setView('citizen'); window.scrollTo(0, 0); }
+  if (view === 'legal') return <LegalPage page={policy} onBack={home}/>;
+  return <><div className={`network ${online ? 'online' : 'offline'}`}>{online ? 'Online' : 'Offline — reporting and status updates unavailable'}</div>{view === 'citizen' ? <Citizen home={() => setView('home')}/> : view === 'admin' ? <Admin home={() => setView('home')}/> : view === 'staff' ? <Staff home={() => setView('home')}/> : <Landing citizen={() => setView('citizen')} admin={() => setView('admin')} staff={() => setView('staff')}/>}<LegalFooter onOpen={openPolicy}/></>;
+}
 
 export default function App(){return <AuthProvider><AppContent/></AuthProvider>;}
