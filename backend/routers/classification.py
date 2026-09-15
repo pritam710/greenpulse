@@ -269,6 +269,13 @@ def _normalise(proposal: ModelClassification) -> ClassificationResponse:
     )
 
 
+@router.get("/status")
+def classification_status(user=Depends(current_user)):
+    if user.role != "Citizen":
+        raise HTTPException(403, "Use a citizen account for waste classification.")
+    return {"available": bool(settings.gemini_api_key.strip())}
+
+
 @router.post("", response_model=ClassificationResponse)
 def classify(body: ClassificationRequest, request: Request,
              user=Depends(current_user), db: Session = Depends(get_db)):

@@ -128,12 +128,21 @@ async function readClassificationPhoto(file) {
 function Scanner({ close }) {
   const [photos, setPhotos] = useState([]);
   const [description, setDescription] = useState('');
+  const [serviceState, setServiceState] = useState('checking');
   const [phase, setPhase] = useState('idle');
   const [message, setMessage] = useState('');
   const [result, setResult] = useState(null);
   const [selectedStream, setSelectedStream] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const photoInput = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    api('/classification/status').then(data => {
+      if (active) setServiceState(data.available ? 'available' : 'unavailable');
+    }).catch(() => { if (active) setServiceState('unavailable'); });
+    return () => { active = false; };
+  }, []);
 
   async function choose(event) {
     const files = [...(event.target.files || [])];
@@ -157,6 +166,7 @@ function Scanner({ close }) {
 
   async function classify(event) {
     event.preventDefault();
+    if (serviceState !== 'available') { setPhase('error'); setMessage('AI classification is not available yet. Use the manual Segregation Guide and try again later.'); return; }
     if (!photos.length) { setPhase('error'); setMessage('Add at least one clear waste photo before classifying.'); return; }
     setPhase('loading'); setMessage('Analysing the item and finding the correct waste stream…'); setResult(null);
     try {
@@ -170,10 +180,11 @@ function Scanner({ close }) {
   return <Modal title="AI segregation assistant" close={close}>
     <form className="classifier" onSubmit={classify}>
       <div className="classifier-heading"><span aria-hidden="true">♻️</span><div><h2>AI Segregation Assistant</h2><p>Photograph one waste item. GreenPulse will identify it and suggest the correct waste stream.</p></div></div>
-      <button type="button" className="scanner" onClick={() => photoInput.current?.click()} disabled={photos.length >= MAX_CLASSIFICATION_PHOTOS || phase === 'loading'} aria-describedby="classifier-photo-help">
+      {serviceState !== 'available' && <div className={`classifier-message ${serviceState === 'checking' ? 'loading' : 'error'}`} role="status" aria-live="polite">{serviceState === 'checking' ? 'Checking the AI classification service…' : 'AI classification is currently unavailable. No photo will be sent. You can still use the manual Segregation Guide.'}</div>}
+      <button type="button" className="scanner" onClick={() => photoInput.current?.click()} disabled={serviceState !== 'available' || photos.length >= MAX_CLASSIFICATION_PHOTOS || phase === 'loading'} aria-describedby="classifier-photo-help">
         <span>📷<b>{photos.length ? 'Add another angle' : 'Capture or select a waste photo'}</b><small>Clear, well-lit photos improve accuracy · up to {MAX_CLASSIFICATION_PHOTOS}</small></span>
       </button>
-      <input ref={photoInput} className="classifier-file" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple onChange={choose} aria-label="Add waste photos" disabled={photos.length >= MAX_CLASSIFICATION_PHOTOS || phase === 'loading'}/><p id="classifier-photo-help" className="classifier-photo-help">Photograph only one item or one mixed pile. Add another angle when material or labels are hard to see.</p>
+      <input ref={photoInput} className="classifier-file" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple onChange={choose} aria-label="Add waste photos" disabled={serviceState !== 'available' || photos.length >= MAX_CLASSIFICATION_PHOTOS || phase === 'loading'}/><p id="classifier-photo-help" className="classifier-photo-help">Photograph only one item or one mixed pile. Add another angle when material or labels are hard to see.</p>
       {photos.length > 0 && <div className="classifier-photos" aria-label="Selected waste photos">{photos.map((photo, index) => <figure key={`${photo.name}-${index}`}><img src={photo.image} alt={`Waste evidence ${index + 1}`}/><button type="button" onClick={() => removePhoto(index)} aria-label={`Remove waste photo ${index + 1}`} disabled={phase === 'loading'}>×</button><figcaption>Photo {index + 1}</figcaption></figure>)}</div>}
       <label className="classifier-description">Optional description<textarea value={description} onChange={event => { setDescription(event.target.value); setResult(null); setSelectedStream(''); setConfirmed(false); setPhase('idle'); setMessage(''); }} maxLength={500} placeholder="Example: clear drink bottle with a recycling label" disabled={phase === 'loading'}/><small>{description.length}/500 · Add the material, label or where the item came from if it is unclear.</small></label>
       <label className="classifier-consent"><input type="checkbox" required disabled={phase === 'loading'}/><span>I consent to sending these selected photos and optional description through the GreenPulse backend to Google Gemini for one-time waste analysis. The classification service does not save the photos or result.</span></label>
@@ -190,7 +201,7 @@ function Scanner({ close }) {
         {!result.uncertain && <div className="classification-review"><label>Confirm or correct the stream<select value={selectedStream} onChange={event => { setSelectedStream(event.target.value); setConfirmed(false); }}>{[...new Set([result.stream, ...CLASSIFICATION_STREAMS])].map(stream => <option key={stream}>{stream}</option>)}</select></label><button type="button" onClick={() => setConfirmed(true)}>Confirm segregation choice</button>{confirmed && <p role="status">✓ Confirmed as {selectedStream}. Check the suggested bin against local collection rules.</p>}</div>}
       </section>}
       <p className="classifier-safety">AI-assisted guidance can be wrong. Confirm the item and follow local collection rules. Never handle sharp, medical, chemical or unknown waste without trained assistance.</p>
-      <div className="classifier-actions"><button type="button" onClick={close}>Close assistant</button><button type="submit" disabled={!photos.length || phase === 'loading'}>{phase === 'loading' ? 'Classifying…' : result?.uncertain ? 'Analyse new evidence' : 'Identify waste'}</button></div>
+      <div className="classifier-actions"><button type="button" onClick={close}>Close assistant</button><button type="submit" disabled={serviceState !== 'available' || !photos.length || phase === 'loading'}>{phase === 'loading' ? 'Classifying…' : result?.uncertain ? 'Analyse new evidence' : 'Identify waste'}</button></div>
     </form>
   </Modal>;
 }

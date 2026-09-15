@@ -244,6 +244,19 @@ class SecurityTests(unittest.TestCase):
         finally:
             settings.gemini_api_key = previous
 
+    def test_classification_status_is_truthful_and_citizen_only(self):
+        previous = settings.gemini_api_key
+        try:
+            settings.gemini_api_key = ""
+            unavailable = self.client.get('/classification/status', headers=self.headers())
+            self.assertEqual(unavailable.status_code, 200, unavailable.text)
+            self.assertFalse(unavailable.json()['available'])
+            self.assertEqual(self.client.get('/classification/status', headers=self.headers(3)).status_code, 403)
+            settings.gemini_api_key = "test-key"
+            self.assertTrue(self.client.get('/classification/status', headers=self.headers()).json()['available'])
+        finally:
+            settings.gemini_api_key = previous
+
     def test_classification_is_structured_private_and_multi_photo(self):
         proposal = classification.ModelClassification(
             decision="classified", certainty="clear", item="plastic drink bottle",
