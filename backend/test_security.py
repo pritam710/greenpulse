@@ -7,6 +7,7 @@ import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 _directory = tempfile.TemporaryDirectory(prefix="greenpulse-security-")
@@ -292,6 +293,52 @@ class SecurityTests(unittest.TestCase):
                 self.assertEqual(db.query(models.Report).count(), 0)
         finally:
             settings.gemini_api_key = previous
+
+    def test_gemini_3_uses_standard_json_schema(self):
+        proposal = classification.ModelClassification(
+            decision="need_more_photos", certainty="uncertain", item="unclear item",
+            material="Unknown", reason="The image does not establish a waste material",
+            follow_up_question="Add a clear close-up.",
+        )
+        captured = {}
+
+        class FakeModels:
+            def generate_content(self, *, model, contents, config):
+                captured.update(model=model, contents=contents, config=config)
+                return SimpleNamespace(parsed=proposal.model_dump(), text="")
+
+        class FakeClient:
+            models = FakeModels()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        previous_key = settings.gemini_api_key
+        previous_model = settings.gemini_model
+        settings.gemini_api_key = "test-key"
+        settings.gemini_model = "gemini-3.6-flash"
+        try:
+            with patch('routers.classification.genai.Client', return_value=FakeClient()):
+                result = classification._call_gemini(
+                    classification.ClassificationRequest(**self.classification_body())
+                )
+            self.assertEqual(result, proposal)
+            self.assertEqual(captured['model'], 'gemini-3.6-flash')
+            self.assertIsNone(captured['config'].temperature)
+            self.assertEqual(captured['config'].thinking_config.thinking_level.value, 'MINIMAL')
+            self.assertIsNone(captured['config'].thinking_config.thinking_budget)
+            self.assertIsNone(captured['config'].response_schema)
+            self.assertEqual(captured['config'].response_mime_type, 'application/json')
+            schema = captured['config'].response_json_schema
+            self.assertEqual(schema['type'], 'object')
+            self.assertFalse(schema['additionalProperties'])
+            self.assertIn('decision', schema['required'])
+        finally:
+            settings.gemini_api_key = previous_key
+            settings.gemini_model = previous_model
 
     def test_classification_abstains_when_model_is_uncertain(self):
         proposal = classification.ModelClassification(

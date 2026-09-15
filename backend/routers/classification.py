@@ -183,11 +183,14 @@ def _call_gemini(body: ClassificationRequest) -> ModelClassification:
             contents=parts,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
-                temperature=0.1,
                 max_output_tokens=512,
                 response_mime_type="application/json",
-                response_schema=ModelClassification,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                # Gemini 3's Generate Content endpoint expects standard JSON
+                # Schema here. ``response_schema`` converts Pydantic's
+                # ``additionalProperties`` rule into an unsupported proto
+                # field, so keep validation in Pydantic but send JSON Schema.
+                response_json_schema=ModelClassification.model_json_schema(),
+                thinking_config=types.ThinkingConfig(thinking_level="minimal"),
             ),
         )
     if isinstance(response.parsed, ModelClassification):

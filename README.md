@@ -28,7 +28,7 @@ The compiled GitHub Pages copy is published from [`pritam710/Green-Pulse`](https
 - Four-stream guidance aligned to India's Solid Waste Management Rules, 2026.
 - Optional AI-assisted identification from one to three photos, with uncertainty handling, citizen correction and safe-bin guidance.
 
-The AI assistant is disabled unless the backend has a server-side `GEMINI_API_KEY`. Copy `backend/.env.example` to `backend/.env` for local development and set the key there; never place it in frontend code or commit it. The hosted service must receive the same secret through Render's Environment settings. `GEMINI_MODEL` defaults to `gemini-2.5-flash`.
+The AI assistant is disabled unless the backend has a server-side `GEMINI_API_KEY`. Copy `backend/.env.example` to `backend/.env` for local development and set the key there; never place it in frontend code or commit it. The hosted service must receive the same secret through Render's Environment settings. `GEMINI_MODEL` defaults to `gemini-3.6-flash`.
 
 Classifier photos are resized in the browser, stripped of metadata by the backend, processed only after explicit consent and are not intentionally persisted by GreenPulse. Use non-sensitive demonstration photos with an unpaid API tier. A real public pilot should use approved paid processing terms, documented retention controls and an institutional privacy review.
 

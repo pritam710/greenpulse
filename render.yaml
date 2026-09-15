@@ -23,7 +23,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.6-flash
 databases:
   - name: greenpulse-pilot-db
     plan: free
