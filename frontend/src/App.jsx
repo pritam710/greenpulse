@@ -222,7 +222,7 @@ function Report({ close, success }) {
     if (!Number.isFinite(loc?.lat) || !Number.isFinite(loc?.lng)) { setMsg({type:'error',text:'A location is required. Enable location permission or enter the coordinates.'}); return; }
     setMsg({type:'wait',text:'Submitting report…'});
     try {
-      const data=await api('/reports',{method:'POST',body:JSON.stringify({image_url:photo,location_lat:loc.lat,location_lng:loc.lng,waste_type:`${category}: ${text.trim()}`,severity:priority,consent_accepted:true,policy_version:'2026-09-19'})});
+      const data=await api('/reports',{method:'POST',body:JSON.stringify({image_url:photo,location_lat:loc.lat,location_lng:loc.lng,waste_type:`${category}: ${text.trim()}`,severity:priority,consent_accepted:true,policy_version:'2026-09-06'})});
       setMsg({type:'ok',text:`Report #${data.id} received by the server and queued for review.`}); success(data.id);
     } catch(err) { setMsg({type:'error',text:err.message}); }
   }

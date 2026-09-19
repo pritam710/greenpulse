@@ -294,7 +294,7 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(self.client.post('/classification', headers=self.headers(3), json=body).status_code, 403)
         no_consent = {key: value for key, value in body.items() if key != 'consent_accepted'}
         self.assertEqual(self.client.post('/classification', headers=self.headers(), json=no_consent).status_code, 422)
-        wrong_policy = {**body, "policy_version": "2026-09-06"}
+        wrong_policy = {**body, "policy_version": "2026-01-01"}
         self.assertEqual(self.client.post('/classification', headers=self.headers(), json=wrong_policy).status_code, 422)
         previous = settings.gemini_api_key
         settings.gemini_api_key = ""

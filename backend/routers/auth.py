@@ -38,7 +38,7 @@ class Credentials(BaseModel):
 class Registration(Credentials):
     name: str = Field(min_length=1, max_length=80)
     consent_accepted: Literal[True]
-    policy_version: Literal["2026-09-19"]
+    policy_version: Literal["2026-09-06", "2026-09-19"]
 
     @field_validator("name")
     @classmethod

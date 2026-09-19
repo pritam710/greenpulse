@@ -76,7 +76,7 @@ export function Access({ role, children, close }) {
     const body = { email: fields.get('email'), password: fields.get('password') };
     try {
       if (register) {
-        await api('/auth/register', { method: 'POST', body: JSON.stringify({ ...body, name: fields.get('name'), consent_accepted: true, policy_version: '2026-09-19' }) });
+        await api('/auth/register', { method: 'POST', body: JSON.stringify({ ...body, name: fields.get('name'), consent_accepted: true, policy_version: '2026-09-06' }) });
         setRegister(false); setMessage('Account created. Now sign in.');
       } else {
         const result = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
