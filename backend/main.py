@@ -136,4 +136,4 @@ app.include_router(classification.router)
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "Welcome to GreenPulse API"}
+    return {"status": "ok", "service": "GreenPulse API", "release": "2026-09-19-launch"}
