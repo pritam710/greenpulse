@@ -38,7 +38,7 @@ class Credentials(BaseModel):
 class Registration(Credentials):
     name: str = Field(min_length=1, max_length=80)
     consent_accepted: Literal[True]
-    policy_version: Literal["2026-09-06"]
+    policy_version: Literal["2026-09-19"]
 
     @field_validator("name")
     @classmethod
@@ -135,13 +135,38 @@ def manage_staff(user=Depends(current_user), db: Session = Depends(get_db)):
 def revoke_staff(staff_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
     if not is_owner(user):
         raise HTTPException(403, "Owner access required.")
-    account = db.get(models.User, staff_id)
+    # Serialize revocation with assignments and worker actions. On PostgreSQL,
+    # every competing operation locks this account before locking a report.
+    account = db.query(models.User).filter(models.User.id == staff_id).populate_existing().with_for_update().first()
     if not account or account.role not in ("Admin", "Driver"):
         raise HTTPException(404, "Staff account not found.")
     if account.id == user.id or is_owner(account):
         raise HTTPException(409, "The GreenPulse owner account cannot be removed.")
     previous_role = account.role
+    requeued = 0
+    if previous_role == "Driver":
+        active = db.query(models.Report).join(models.ReportWorkflow).filter(
+            models.ReportWorkflow.assigned_to == account.id,
+            models.Report.status.in_(("Assigned", "In progress", "Cleaning")),
+        ).order_by(models.Report.id).with_for_update().all()
+        for report in active:
+            previous_status = report.status
+            changed = db.query(models.Report).filter(
+                models.Report.id == report.id, models.Report.status == previous_status,
+            ).update({models.Report.status: "Pending"}, synchronize_session=False)
+            if changed != 1:
+                db.rollback()
+                raise HTTPException(409, "A task changed during revocation. Refresh and retry.")
+            workflow = db.get(models.ReportWorkflow, report.id)
+            workflow.assigned_to = None
+            db.add(models.AuditEvent(
+                report_id=report.id, actor_id=user.id,
+                action=f"Worker access revoked; {previous_status} task returned to Pending for reassignment",
+            ))
+            requeued += 1
+        # Completion notes, photos, rewards and existing audit history are kept.
     account.role = "Disabled"
     db.query(models.AuthSession).filter(models.AuthSession.user_id == account.id).delete()
     db.commit()
-    return {"message": f"{previous_role} access revoked for {account.name}."}
+    return {"message": f"{previous_role} access revoked for {account.name}. {requeued} active task(s) returned to Pending for reassignment.",
+            "requeued_tasks": requeued}

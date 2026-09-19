@@ -1,12 +1,12 @@
-const CACHE = 'greenpulse-v9-worker-workspace';
-const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './favicon.svg'];
+const CACHE = 'greenpulse-v10-launch-readiness';
+const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './favicon.svg', './social-preview.png'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('greenpulse-') && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   const shellRoot = new URL('./', self.registration.scope).pathname;
   const publicAsset = url.pathname.startsWith(shellRoot + 'assets/') ||
-    ['index.html', 'manifest.webmanifest', 'favicon.svg'].some(name => url.pathname === shellRoot + name) || url.pathname === shellRoot;
+    ['index.html', 'manifest.webmanifest', 'favicon.svg', 'social-preview.png', '404.html', 'robots.txt', 'sitemap.xml'].some(name => url.pathname === shellRoot + name) || url.pathname === shellRoot;
   if (event.request.method !== 'GET' || url.origin !== self.location.origin ||
       event.request.headers.has('Authorization') || !publicAsset) return;
   event.respondWith(fetch(event.request).then(response => {

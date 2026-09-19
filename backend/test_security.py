@@ -55,7 +55,7 @@ class SecurityTests(unittest.TestCase):
         response = self.client.post('/reports', headers=self.headers(), json={
             "location_lat": 17.66, "location_lng": 75.9, "waste_type": "Waste overflow",
             "severity": "Medium", "image_url": self.photo,
-            "consent_accepted": True, "policy_version": "2026-09-06"})
+            "consent_accepted": True, "policy_version": "2026-09-19"})
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()["id"]
 
@@ -88,7 +88,7 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(self.client.post('/reports', headers=self.headers(), json=body).status_code, 422)
         response = self.client.post('/auth/register', json={"name": "Attacker", "email": "new@example.test",
                                    "password": self.password, "role": "Admin",
-                                   "consent_accepted": True, "policy_version": "2026-09-06"})
+                                   "consent_accepted": True, "policy_version": "2026-09-19"})
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.client.get('/auth/staff', headers=self.headers()).status_code, 403)
 
@@ -116,6 +116,7 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(listing.status_code, 200, listing.text)
             self.assertTrue(any(account["is_owner"] for account in listing.json()))
             self.assertEqual(self.client.delete('/auth/staff/4', headers=self.headers(1)).status_code, 403)
+            self.assertEqual(self.client.delete('/auth/staff/4', headers=self.headers(6)).status_code, 403)
             self.assertEqual(self.client.delete('/auth/staff/3', headers=self.headers(3)).status_code, 409)
             revoked = self.client.delete('/auth/staff/5', headers=self.headers(3))
             self.assertEqual(revoked.status_code, 200, revoked.text)
@@ -124,6 +125,67 @@ class SecurityTests(unittest.TestCase):
                 self.assertEqual(db.get(models.User, 5).role, "Disabled")
         finally:
             settings.bootstrap_admin_email = previous
+
+    def test_revoking_worker_requeues_active_tasks_and_preserves_history(self):
+        previous = settings.bootstrap_admin_email
+        settings.bootstrap_admin_email = "test3@example.test"
+        try:
+            assigned, inspecting, cleaning, resolved, other_worker = [self.create() for _ in range(5)]
+            for rid in (assigned, inspecting, cleaning, resolved):
+                self.assertEqual(self.move(rid, 3, 'Assigned', assigned_to=4).status_code, 200)
+            self.assertEqual(self.move(other_worker, 3, 'Assigned', assigned_to=5).status_code, 200)
+            for rid in (inspecting, cleaning, resolved):
+                self.assertEqual(self.move(rid, 4, 'In progress').status_code, 200)
+            for rid in (cleaning, resolved):
+                self.assertEqual(self.move(rid, 4, 'Cleaning').status_code, 200)
+            self.assertEqual(self.move(resolved, 4, 'Resolved', completion_note='Collected and segregated',
+                                       proof_image_url=self.photo).status_code, 200)
+            with SessionLocal() as db:
+                workflow = db.get(models.ReportWorkflow, cleaning)
+                workflow.completion_note = 'Earlier field evidence retained'
+                workflow.proof_image_url = self.photo
+                db.commit()
+                previous_audit_count = db.query(models.AuditEvent).filter_by(report_id=cleaning).count()
+            response = self.client.delete('/auth/staff/4', headers=self.headers(3))
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['requeued_tasks'], 3)
+            self.assertEqual(self.client.get('/auth/me', headers=self.headers(4)).status_code, 401)
+            with SessionLocal() as db:
+                for rid in (assigned, inspecting, cleaning):
+                    self.assertEqual(db.get(models.Report, rid).status, 'Pending')
+                    self.assertIsNone(db.get(models.ReportWorkflow, rid).assigned_to)
+                    event = db.query(models.AuditEvent).filter_by(report_id=rid).order_by(models.AuditEvent.id.desc()).first()
+                    self.assertEqual(event.actor_id, 3)
+                    self.assertIn('returned to Pending for reassignment', event.action)
+                workflow = db.get(models.ReportWorkflow, cleaning)
+                self.assertEqual(workflow.completion_note, 'Earlier field evidence retained')
+                self.assertEqual(workflow.proof_image_url, self.photo)
+                self.assertEqual(db.query(models.AuditEvent).filter_by(report_id=cleaning).count(), previous_audit_count + 1)
+                self.assertEqual(db.get(models.Report, resolved).status, 'Resolved')
+                self.assertEqual(db.get(models.ReportWorkflow, resolved).assigned_to, 4)
+                self.assertEqual(db.get(models.Report, other_worker).status, 'Assigned')
+                self.assertEqual(db.get(models.ReportWorkflow, other_worker).assigned_to, 5)
+            self.assertEqual(self.move(assigned, 3, 'Assigned', assigned_to=4).status_code, 422)
+            self.assertEqual(self.move(assigned, 3, 'Assigned', assigned_to=5).status_code, 200)
+            self.assertEqual(self.move(assigned, 5, 'In progress').status_code, 200)
+        finally:
+            settings.bootstrap_admin_email = previous
+
+    def test_worker_list_detail_and_audit_are_assignment_isolated(self):
+        mine, someone_else, unassigned = [self.create() for _ in range(3)]
+        self.assertEqual(self.move(mine, 3, 'Assigned', assigned_to=4).status_code, 200)
+        self.assertEqual(self.move(someone_else, 3, 'Assigned', assigned_to=5).status_code, 200)
+        for worker, expected in ((4, mine), (5, someone_else)):
+            response = self.client.get('/reports', headers=self.headers(worker))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual([report['id'] for report in response.json()], [expected])
+            self.assertEqual(response.json()[0]['image_url'], '')
+            self.assertEqual(self.client.get(f'/reports/{expected}', headers=self.headers(worker)).status_code, 200)
+            self.assertEqual(self.client.get(f'/reports/{expected}/audit', headers=self.headers(worker)).status_code, 200)
+            for rid in ({mine, someone_else, unassigned} - {expected}):
+                self.assertEqual(self.client.get(f'/reports/{rid}', headers=self.headers(worker)).status_code, 404)
+                self.assertEqual(self.client.get(f'/reports/{rid}/audit', headers=self.headers(worker)).status_code, 404)
+                self.assertEqual(self.move(rid, worker, 'In progress').status_code, 404)
 
     def test_cors_preflight_allows_staff_revocation(self):
         response = self.client.options('/auth/staff/5', headers={
@@ -217,7 +279,7 @@ class SecurityTests(unittest.TestCase):
     def test_input_upload_and_error_redaction(self):
         for image in ['https://internal.example/secret', 'data:image/svg+xml;base64,PHN2Zz4=', 'data:image/png;base64,bm90LWltYWdl']:
             response = self.client.post('/reports', headers=self.headers(), json={"waste_type": "Test", "location_lat": 1, "location_lng": 2, "image_url": image,
-                                                                                  "consent_accepted": True, "policy_version": "2026-09-06"})
+                                                                                  "consent_accepted": True, "policy_version": "2026-09-19"})
             self.assertEqual(response.status_code, 422)
             self.assertNotIn(image, response.text)
         response = self.client.post('/auth/login', json={"email": "bad", "password": "sensitive"})
@@ -438,7 +500,7 @@ class SecurityTests(unittest.TestCase):
             db.add(models.Report(citizen_id=99, image_url='', location_lat=1, location_lng=1, waste_type='Legacy', severity='Low'))
             db.commit()
         response = self.client.post('/auth/register', json={"name": "New person", "email": "new@example.test", "password": self.password,
-                                                              "consent_accepted": True, "policy_version": "2026-09-06"})
+                                                              "consent_accepted": True, "policy_version": "2026-09-19"})
         self.assertEqual(response.status_code, 201)
         with SessionLocal() as db:
             user = db.query(models.User).filter_by(email='new@example.test').one()
@@ -452,13 +514,13 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(missing.status_code, 422)
         response = self.client.post('/auth/register', json={
             "name": "Consenting person", "email": "consent@example.test", "password": self.password,
-            "consent_accepted": True, "policy_version": "2026-09-06"})
+            "consent_accepted": True, "policy_version": "2026-09-19"})
         self.assertEqual(response.status_code, 201, response.text)
         rid = self.create()
         with SessionLocal() as db:
             events = db.query(models.ConsentEvent).order_by(models.ConsentEvent.id).all()
             self.assertEqual([event.purpose for event in events], ["Account registration", f"Report {rid} submission"])
-            self.assertTrue(all(event.policy_version == "2026-09-06" for event in events))
+            self.assertTrue(all(event.policy_version == "2026-09-19" for event in events))
 
 if __name__ == '__main__':
     unittest.main()

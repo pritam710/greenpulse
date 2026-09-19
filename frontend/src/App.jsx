@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 
@@ -223,7 +222,7 @@ function Report({ close, success }) {
     if (!Number.isFinite(loc?.lat) || !Number.isFinite(loc?.lng)) { setMsg({type:'error',text:'A location is required. Enable location permission or enter the coordinates.'}); return; }
     setMsg({type:'wait',text:'Submitting report…'});
     try {
-      const data=await api('/reports',{method:'POST',body:JSON.stringify({image_url:photo,location_lat:loc.lat,location_lng:loc.lng,waste_type:`${category}: ${text.trim()}`,severity:priority,consent_accepted:true,policy_version:'2026-09-06'})});
+      const data=await api('/reports',{method:'POST',body:JSON.stringify({image_url:photo,location_lat:loc.lat,location_lng:loc.lng,waste_type:`${category}: ${text.trim()}`,severity:priority,consent_accepted:true,policy_version:'2026-09-19'})});
       setMsg({type:'ok',text:`Report #${data.id} received by the server and queued for review.`}); success(data.id);
     } catch(err) { setMsg({type:'error',text:err.message}); }
   }
@@ -246,13 +245,17 @@ function NearbyBins({ close }) {
   useEffect(() => { navigator.geolocation?.getCurrentPosition(({coords}) => { setPosition({lat:coords.latitude,lng:coords.longitude}); setNotice('Sorted from your current position.'); }, () => {}, {enableHighAccuracy:true,timeout:8000}); }, []);
   const sorted = useMemo(() => DEMO_BINS.map(bin => ({...bin,distance:distanceKm(position,bin)})).sort((a,b)=>a.distance-b.distance), [position]);
   useEffect(() => {
-    if (!mapElement.current || map.current) return;
-    map.current=L.map(mapElement.current).setView([position.lat,position.lng],15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map.current);
-    DEMO_BINS.forEach(bin=>L.circleMarker([bin.lat,bin.lng],{radius:11,color:'#07883c',fillColor:'#22c55e',fillOpacity:.9}).addTo(map.current).bindPopup(`<b>${bin.name}</b><br>${bin.type}`));
-    L.circleMarker([position.lat,position.lng],{radius:9,color:'#1d4ed8',fillColor:'#60a5fa',fillOpacity:1}).addTo(map.current).bindPopup('<b>Your position</b>');
-    const observer=new ResizeObserver(()=>map.current?.invalidateSize()); observer.observe(mapElement.current); setTimeout(()=>map.current?.invalidateSize(),100);
-    return()=>{observer.disconnect();map.current?.remove();map.current=null};
+    if (!mapElement.current) return;
+    let disposed = false, observer;
+    import('leaflet').then(({ default: L }) => {
+      if (disposed || !mapElement.current) return;
+      map.current=L.map(mapElement.current).setView([position.lat,position.lng],15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map.current);
+      DEMO_BINS.forEach(bin=>L.circleMarker([bin.lat,bin.lng],{radius:11,color:'#07883c',fillColor:'#22c55e',fillOpacity:.9}).addTo(map.current).bindPopup(`<b>${bin.name}</b><br>${bin.type}`));
+      L.circleMarker([position.lat,position.lng],{radius:9,color:'#1d4ed8',fillColor:'#60a5fa',fillOpacity:1}).addTo(map.current).bindPopup('<b>Your position</b>');
+      observer=new ResizeObserver(()=>map.current?.invalidateSize()); observer.observe(mapElement.current); setTimeout(()=>map.current?.invalidateSize(),100);
+    }).catch(() => setNotice('The map could not load. The verified demo bin list remains available below.'));
+    return()=>{disposed=true;observer?.disconnect();map.current?.remove();map.current=null};
   }, [position]);
   return <Modal title="Nearby bins" close={close}><h2 className="left">📍 Nearby Bins</h2><div className="bin-map" ref={mapElement}/><p className="bin-notice">{notice}</p><div className="bin-list">{sorted.map(bin=><article key={bin.id}><span><b>{bin.name}</b><small>{bin.type} · Demo campus location</small></span><strong>{bin.distance<1?`${Math.round(bin.distance*1000)} m`:`${bin.distance.toFixed(1)} km`}</strong></article>)}</div><button className="dark" onClick={close}>Close Map</button></Modal>;
 }
@@ -261,19 +264,20 @@ function Citizen({ home }) {
   const [modal,setModal]=useState(''); const [last,setLast]=useState(null);
   const {user,refresh}=useAuth(); const points=user?.green_credits ?? 0;
   useEffect(()=>{ if(!modal) refresh(); },[modal,refresh]);
-  return <main className="citizen"><header><div className="top"><button onClick={home} aria-label="About GreenPulse">ⓘ</button><h1>Green Pulse</h1><button className="track-top" onClick={()=>setModal('reports')}>My Reports</button></div><div className="quick-report"><div><p>See waste? Report it now.</p><h2>Photo + GPS + 30 seconds</h2></div><button onClick={()=>setModal('report')}>📷 Report an issue</button></div></header>
-    <section className="actions"><button className="red primary-action" onClick={()=>setModal('report')}><Icon color="red">📷</Icon><b>Capture & Report</b><small>Open camera, add GPS and submit</small></button><button className="green" onClick={()=>setModal('reports')}><Icon color="green">📋</Icon><b>Track My Reports</b><small>See queue, inspection and cleaning status</small></button><button className="blue" onClick={()=>setModal('guide')}><Icon color="blue">♻️</Icon><b>Segregation Guide</b></button><button className="green" onClick={()=>setModal('bins')}><Icon color="green">📍</Icon><b>Nearby Bins</b></button><button className="yellow" onClick={()=>setModal('wallet')}><Icon color="yellow">🎁</Icon><b>Eco Points: {points}</b></button><button className="blue" onClick={()=>setModal('scan')}><Icon color="blue">🤖</Icon><b>AI Segregation Assistant</b><small>Identify an item and find its correct bin</small></button></section>
+  return <main className="citizen" id="main-content"><a className="skip" href="#citizen-actions">Skip to reporting actions</a><header><div className="top"><button onClick={home} aria-label="About GreenPulse">ⓘ</button><h1>Green Pulse</h1><button className="track-top" onClick={()=>setModal('reports')}>My Reports</button></div><div className="quick-report"><div><p>See waste? Report it now.</p><h2>Add a description, location and optional photo</h2></div><button onClick={()=>setModal('report')}>📷 Report an issue</button></div></header>
+    <section className="actions" id="citizen-actions" tabIndex={-1}><button className="red primary-action" onClick={()=>setModal('report')}><Icon color="red">📷</Icon><b>Capture & Report</b><small>Add a location, details and optional photo</small></button><button className="green" onClick={()=>setModal('reports')}><Icon color="green">📋</Icon><b>Track My Reports</b><small>See queue, inspection and cleaning status</small></button><button className="blue" onClick={()=>setModal('guide')}><Icon color="blue">♻️</Icon><b>Segregation Guide</b></button><button className="green" onClick={()=>setModal('bins')}><Icon color="green">📍</Icon><b>Nearby Bins</b></button><button className="yellow" onClick={()=>setModal('wallet')}><Icon color="yellow">🎁</Icon><b>Eco Points: {points}</b></button><button className="blue" onClick={()=>setModal('scan')}><Icon color="blue">🤖</Icon><b>AI Segregation Assistant</b><small>Identify an item and find its correct bin</small></button></section>
     <section className="impact"><p className="label">Your civic impact</p><div><span>♻️ &nbsp; Waste Sorted</span><b>Not measured</b></div><div><span>📣 &nbsp; Issues Reported</span><b>{last?'View My Reports':'—'}</b></div><div><span>🏆 &nbsp; Campus Rank</span><b>Not ranked</b></div>{last&&<small>Latest report: #{last}</small>}</section>
     {modal==='guide'&&<Segregation close={()=>setModal('')}/>} {modal==='scan'&&<Access role="Citizen" close={()=>setModal('')}><Scanner close={()=>setModal('')}/></Access>} {modal==='report'&&<Access role="Citizen" close={()=>setModal('')}><Report close={()=>setModal('')} success={id=>setLast(id)}/></Access>} {modal==='wallet'&&<Access role="Citizen" close={()=>setModal('')}><Wallet points={points} close={()=>setModal('')}/></Access>} {modal==='bins'&&<NearbyBins close={()=>setModal('')}/>} {modal==='reports'&&<Access role="Citizen" close={()=>setModal('')}><MyReports close={()=>setModal('')}/></Access>}
   </main>;
 }
 
 function Map({ reports }) {
-  const el=useRef(null), map=useRef(null);
-  useEffect(()=>{if(!el.current||map.current)return;map.current=L.map(el.current).setView([CAMPUS.lat,CAMPUS.lng],13);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map.current);const observer=new ResizeObserver(()=>map.current?.invalidateSize());observer.observe(el.current);const resize=()=>map.current?.invalidateSize();window.addEventListener('resize',resize);setTimeout(resize,100);return()=>{observer.disconnect();window.removeEventListener('resize',resize);map.current?.remove();map.current=null}},[]);
+  const el=useRef(null), map=useRef(null), leaflet=useRef(null);
+  const [mapReady,setMapReady]=useState(false), [mapError,setMapError]=useState('');
+  useEffect(()=>{if(!el.current||map.current)return;let disposed=false,observer;const resize=()=>map.current?.invalidateSize();import('leaflet').then(({default:L})=>{if(disposed||!el.current)return;leaflet.current=L;map.current=L.map(el.current).setView([CAMPUS.lat,CAMPUS.lng],13);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map.current);observer=new ResizeObserver(resize);observer.observe(el.current);window.addEventListener('resize',resize);setTimeout(resize,100);setMapReady(true)}).catch(()=>setMapError('The map could not load. Reports remain available in the operations queue.'));return()=>{disposed=true;observer?.disconnect();window.removeEventListener('resize',resize);map.current?.remove();map.current=null;leaflet.current=null}},[]);
   const outliers=reports.filter(report=>!inPilotArea(report)).length;
-  useEffect(()=>{if(!map.current)return;const localReports=reports.filter(inPilotArea);map.current.eachLayer(x=>x instanceof L.CircleMarker&&x.remove());localReports.forEach(r=>L.circleMarker([r.location_lat,r.location_lng],{radius:10,color:r.status==='Pending'?'#dc2626':'#16a34a',fillOpacity:.85}).addTo(map.current).bindPopup(Object.assign(document.createElement('span'),{textContent:`Report #${r.id} · ${r.waste_type} · ${r.status}`})));if(localReports.length>1)map.current.fitBounds(localReports.map(r=>[r.location_lat,r.location_lng]),{padding:[30,30],maxZoom:15});else if(localReports.length===1)map.current.setView([localReports[0].location_lat,localReports[0].location_lng],15);else map.current.setView([CAMPUS.lat,CAMPUS.lng],13)},[reports]);
-  return <section className="operations-map" aria-label="Solapur pilot operations map"><div className="map" ref={el}/>{outliers>0&&<p role="status">⚠ {outliers} report{outliers===1?' has':'s have'} coordinates outside the Solapur pilot area and {outliers===1?'is':'are'} excluded from map zoom. Review the coordinates before assignment.</p>}</section>;
+  useEffect(()=>{const L=leaflet.current;if(!mapReady||!map.current||!L)return;const localReports=reports.filter(inPilotArea);map.current.eachLayer(x=>x instanceof L.CircleMarker&&x.remove());localReports.forEach(r=>L.circleMarker([r.location_lat,r.location_lng],{radius:10,color:r.status==='Pending'?'#dc2626':'#16a34a',fillOpacity:.85}).addTo(map.current).bindPopup(Object.assign(document.createElement('span'),{textContent:`Report #${r.id} · ${r.waste_type} · ${r.status}`})));if(localReports.length>1)map.current.fitBounds(localReports.map(r=>[r.location_lat,r.location_lng]),{padding:[30,30],maxZoom:15});else if(localReports.length===1)map.current.setView([localReports[0].location_lat,localReports[0].location_lng],15);else map.current.setView([CAMPUS.lat,CAMPUS.lng],13)},[reports,mapReady]);
+  return <section className="operations-map" aria-label="Solapur pilot operations map"><div className="map" ref={el}/>{mapError&&<p role="status">{mapError}</p>}{outliers>0&&<p role="status">⚠ {outliers} report{outliers===1?' has':'s have'} coordinates outside the Solapur pilot area and {outliers===1?'is':'are'} excluded from map zoom. Review the coordinates before assignment.</p>}</section>;
 }
 
 function Admin({home}) { return <Access role="Admin" close={home}><Operations home={home} Map={Map}/></Access>; }

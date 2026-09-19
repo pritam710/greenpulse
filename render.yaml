@@ -24,10 +24,3 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
-databases:
-  - name: greenpulse-pilot-db
-    plan: free
-    region: singapore
-    databaseName: greenpulse
-    user: greenpulse
-    ipAllowList: []

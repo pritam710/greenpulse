@@ -1,13 +1,14 @@
+import { useEffect } from 'react';
 import './legal.css';
 
-const EFFECTIVE = '14 September 2026';
+const EFFECTIVE = '19 September 2026';
 
 const pages = {
   privacy: {
     title: 'Privacy Policy',
     intro: 'This policy explains how the GreenPulse student pilot handles information when you create an account, report a waste or sanitation issue, or use the map.',
     sections: [
-      ['Who operates this pilot', <p key="operator">GreenPulse is a student project owned and led by <strong>Pritam Rathod</strong> in Maharashtra, India. It is not an official Government of India or municipal website. Contact the project owner at <a href="mailto:pritamratho710@gmail.com">pritamratho710@gmail.com</a>. Do not send passwords, identity documents, precise home locations, or other unnecessary sensitive information by email.</p>],
+      ['Who operates this pilot', <p key="operator">GreenPulse is a student project owned and operated by <strong>Pritam Rathod</strong> in Maharashtra, India. It is not an official Government of India or municipal website. The six-member SIH team is led by Aditya Sardeshmukh. Contact the project owner and pilot privacy contact at <a href="mailto:pritamrathod710@gmail.com">pritamrathod710@gmail.com</a>. Do not send passwords, identity documents, precise home locations, or other unnecessary sensitive information by email.</p>],
       ['Information we collect', <ul key="collect"><li>Account name, email address, password hash, role, and session records.</li><li>Report category, description, priority, coordinates, optional evidence photo, timestamps, status, and verification records.</li><li>Worker completion notes and required completion evidence when the staff workflow is used.</li><li>When you voluntarily use AI-assisted segregation: up to three selected photos, an optional description, and the resulting suggestion.</li><li>Technical security information that our hosting providers may log, such as IP address, request time, browser details, and error records.</li></ul>],
       ['Why we use it', <p key="why">We use this information to create and secure accounts, receive and display reports, assign and track work, verify outcomes, calculate pilot reward points, provide optional waste-segregation guidance, prevent abuse, diagnose failures, and demonstrate the prototype.</p>],
       ['Data minimisation', <p key="minimum">The report form asks only for information needed to locate and understand an issue. A photo is optional for citizen reports. Avoid names, faces, number plates, home interiors, identity documents, and unrelated people. Use demonstration data only during the student pilot.</p>],
@@ -15,7 +16,7 @@ const pages = {
       ['Who receives information', <p key="share">Authorised administrators and assigned field workers may receive report details needed for the workflow. The frontend is hosted by GitHub Pages, the API is hosted by Render, the pilot database is hosted by Neon, and maps use OpenStreetMap tiles. If you choose AI-assisted segregation, the selected photos and description are sent by the GreenPulse backend to the Google Gemini API. GreenPulse does not send your GPS coordinates, email address, or account ID to Gemini. These providers process information under their own terms. We do not sell personal data.</p>],
       ['AI-assisted segregation', <p key="ai">The classifier is optional decision support, not a final municipal determination. GreenPulse removes image metadata before analysis and does not intentionally save classifier photos or results unless you later choose to include information in a report. Do not submit faces, number plates, documents, confidential content, or sensitive personal information. For this student pilot, use demonstration images only. Google may handle API content according to the service tier and its terms; real public use requires an approved paid service, contractual and privacy review, local validation, and human oversight.</p>],
       ['International hosting', <p key="hosting">The current pilot infrastructure may process or store information outside India, including in Render's Singapore region and Neon's configured cloud region. Do not use this pilot for sensitive or official government data until an authorised organisation has completed a hosting, security, retention, and legal review.</p>],
-      ['Retention and deletion', <p key="retention">The student pilot does not yet provide self-service account deletion or a formally approved retention schedule. This is a deployment blocker for real public use. For a test-data deletion request, email <a href="mailto:pritamratho710@gmail.com">pritamratho710@gmail.com</a> from the address connected to the test account. The project owner will verify the request privately before acting.</p>],
+      ['Retention and deletion', <p key="retention">The student pilot does not yet provide self-service account deletion or a formally approved retention schedule. This is a deployment blocker for real public use. To request access, correction, withdrawal of consent, or deletion of test data, email <a href="mailto:pritamrathod710@gmail.com">pritamrathod710@gmail.com</a> from the address connected to the test account and state the request without attaching sensitive documents. The project owner will verify the request privately, explain any necessary record retention, and respond. Withdrawing consent does not undo processing that already occurred.</p>],
       ['Security', <p key="security">We use HTTPS, hashed passwords, expiring server-side sessions, role checks, input limits, and restricted report access. No internet service is risk free. This prototype has not received an independent penetration test or government security certification.</p>],
       ['Your choices', <p key="choices">You can refuse camera or location permission, omit an optional citizen photo, avoid creating an account, and stop using the pilot. Some core functions cannot work without an account and an accurate report location.</p>],
       ['Children', <p key="children">This pilot is not designed for independent use by children. A school or public rollout involving anyone under 18 requires an age-appropriate process and verifiable parental or lawful guardian consent where applicable.</p>],
@@ -69,14 +70,23 @@ const policyLinks = [
 
 export function LegalFooter({ onOpen }) {
   return <footer className="legal-footer" aria-label="Legal and project information">
-    <p><strong>GreenPulse student pilot</strong> · Led by Pritam Rathod · Maharashtra, India · Not an official government service</p>
-    <nav aria-label="Legal policies">{policyLinks.map(([id, label]) => <button key={id} type="button" onClick={() => onOpen(id)}>{label}</button>)}</nav>
+    <p><strong>GreenPulse student pilot</strong> · Project owner Pritam Rathod · Maharashtra, India · Not an official government service</p>
+    <nav aria-label="Legal policies">{policyLinks.map(([id, label]) => <a key={id} href={`?policy=${id}`} onClick={event => { if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onOpen(id); } }}>{label}</a>)}</nav>
+    <p>Project and privacy contact: <a href="mailto:pritamrathod710@gmail.com">pritamrathod710@gmail.com</a></p>
     <p>Maps © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a></p>
   </footer>;
 }
 
 export function LegalPage({ page, onBack }) {
   const content = pages[page] || pages.privacy;
+  useEffect(() => {
+    const previousTitle = document.title;
+    const description = document.querySelector('meta[name="description"]');
+    const previousDescription = description?.content;
+    document.title = `${content.title} | GreenPulse student pilot`;
+    if (description) description.content = content.intro;
+    return () => { document.title = previousTitle; if (description) description.content = previousDescription; };
+  }, [content]);
   return <main className="legal-page" id="main-content">
     <a className="skip" href="#policy-content">Skip to policy</a>
     <header><button type="button" onClick={onBack}>Back to GreenPulse</button><p>GreenPulse student pilot</p></header>

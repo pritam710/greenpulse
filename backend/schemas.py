@@ -37,7 +37,7 @@ class ReportCreate(BaseModel):
     waste_type: str = Field(min_length=3, max_length=1000)
     severity: Literal["Low", "Medium", "High", "Critical"] = "Medium"
     consent_accepted: Literal[True]
-    policy_version: Literal["2026-09-06"]
+    policy_version: Literal["2026-09-19"]
     _image = field_validator("image_url")(validate_image)
 
 class Transition(BaseModel):

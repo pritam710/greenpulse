@@ -34,6 +34,8 @@ Classifier photos are resized in the browser, stripped of metadata by the backen
 
 Production government deployment will additionally require authorised ownership, Indian public-sector hosting and procurement review, encrypted object storage, a shared rate limiter, independent security/accessibility testing, retention and grievance procedures, measurable model validation with human oversight, and audited municipal integrations.
 
+The current launch checklist, verified demo scope and remaining public-sector blockers are documented in [`LAUNCH_READINESS.md`](LAUNCH_READINESS.md).
+
 ## Verification
 
 ```powershell

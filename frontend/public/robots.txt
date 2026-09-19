@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://pritam710.github.io/Green-Pulse/sitemap.xml

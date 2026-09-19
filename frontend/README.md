@@ -1,16 +1,23 @@
-# React + Vite
+# GreenPulse frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The GreenPulse citizen, administrator and field-worker interface uses React and Vite. The published student demonstration is built from this folder and copied to the separate `pritam710/Green-Pulse` GitHub Pages repository.
 
-Currently, two official plugins are available:
+## Local development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```powershell
+npm install
+npm run dev
+```
 
-## React Compiler
+The local frontend expects the API at `http://127.0.0.1:8000`. Set `VITE_API_URL` only when testing another approved HTTPS API. Never put database credentials or AI keys in a `VITE_` variable because those values become public frontend code.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Quality checks
 
-## Expanding the Oxlint configuration
+```powershell
+npm run lint
+npm run build
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+The production build includes a restrictive browser security policy, offline public shell, project metadata, legal links and a custom 404 page. Private API responses are never added to the service-worker cache.
+
+See the repository's `LAUNCH_READINESS.md`, `SECURITY.md` and `HOSTING.md` before deployment.

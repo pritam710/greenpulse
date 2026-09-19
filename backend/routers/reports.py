@@ -73,7 +73,18 @@ def audit(report_id: int, user=Depends(current_user), db: Session = Depends(get_
 @router.patch("/{report_id}/status", response_model=schemas.ReportResponse)
 def transition(report_id: int, body: schemas.Transition, user=Depends(current_user), db: Session = Depends(get_db)):
     throttle(("workflow", user.id), 60, 60)
-    report = visible_query(db, user).filter(models.Report.id == report_id).first()
+    # Lock worker identities before reports, matching the revocation lock order.
+    # This prevents an in-flight assignment/action from reviving a revoked task.
+    staff = None
+    if body.status == "Assigned" and user.role == "Admin":
+        staff = db.query(models.User).filter(models.User.id == body.assigned_to).populate_existing().with_for_update().first() if body.assigned_to else None
+        if not staff or staff.role != "Driver":
+            raise HTTPException(422, "Choose a registered field worker.")
+    if user.role == "Driver":
+        active_worker = db.query(models.User).filter(models.User.id == user.id).populate_existing().with_for_update().first()
+        if not active_worker or active_worker.role != "Driver":
+            raise HTTPException(401, "Account unavailable.")
+    report = visible_query(db, user).filter(models.Report.id == report_id).populate_existing().with_for_update().first()
     if not report:
         raise HTTPException(404, "Report not found.")
     workflow = db.get(models.ReportWorkflow, report_id)
@@ -94,9 +105,6 @@ def transition(report_id: int, body: schemas.Transition, user=Depends(current_us
     if fields - permitted:
         raise HTTPException(422, "Unexpected fields for this status change.")
     if body.status == "Assigned":
-        staff = db.get(models.User, body.assigned_to) if body.assigned_to else None
-        if not staff or staff.role != "Driver":
-            raise HTTPException(422, "Choose a registered field worker.")
         workflow.assigned_to = staff.id
     if body.status == "Resolved":
         if not body.completion_note.strip() or not body.proof_image_url:
