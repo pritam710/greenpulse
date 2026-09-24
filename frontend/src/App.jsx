@@ -42,19 +42,18 @@ function Modal({ title, close, children }) {
   </div>;
 }
 
-function Landing({ citizen, admin, staff }) {
+function Landing({ citizen, signIn }) {
+  const { user } = useAuth();
   return <main className="landing">
-    <a className="skip" href="#main-content">Skip to content</a><section className="hero"><div className="hero-glow"/><div className="logo" aria-hidden="true">🍃</div><p className="hero-kicker">SIH 26195 · Clean & Green Technology</p><h1>Green Pulse</h1><h2>From segregation guidance to verified resolution.</h2><p className="hero-copy">A student-built waste identification, segregation and reporting pilot for campuses and wards.</p><button onClick={citizen}>Open citizen reporting</button><div className="trust-row"><span>AI-assisted segregation</span><span>GIS report map</span><span>Server-recorded workflow</span></div></section>
+    <a className="skip" href="#main-content">Skip to content</a><section className="hero"><div className="hero-glow"/><div className="logo" aria-hidden="true">🍃</div><p className="hero-kicker">SIH 26195 · Clean & Green Technology</p><h1>Green Pulse</h1><h2>From segregation guidance to verified resolution.</h2><p className="hero-copy">A student-built waste identification, segregation and reporting pilot for campuses and wards.</p><div className="hero-actions"><button onClick={citizen}>Open citizen reporting</button><button className="hero-signin" onClick={user ? citizen : signIn}>{user ? 'Return to citizen dashboard' : 'Sign in to your account'}</button></div><div className="trust-row"><span>AI-assisted segregation</span><span>GIS report map</span><span>Server-recorded workflow</span></div></section>
     <section id="main-content" className="features"><p className="label">Platform capabilities</p>
       <article><Icon color="green">🤖</Icon><div><b>AI Segregation Assistant</b><p>Identifies an item from up to three photos and asks for better evidence instead of guessing.</p></div></article>
       <article><Icon color="blue">♻️</Icon><div><b>Four-Stream Segregation</b><p>Guidance for wet, dry, sanitary and special-care waste.</p></div></article>
       <article><Icon color="red">📍</Icon><div><b>Geotagged Reporting</b><p>Capture your location and report issues instantly.</p></div></article>
       <article><Icon color="yellow">🎁</Icon><div><b>Civic Wallet Rewards</b><p>Earn Eco-Points for verified contributions.</p></div></article>
-      <button className="link" onClick={admin}>▣ &nbsp; Open Admin GIS Panel</button>
-      <button className="link secondary" onClick={staff}>✓ &nbsp; Open Cleaning Staff Workspace</button>
     </section>
     <section className="journey"><p className="label">Report workflow</p><h2>A visible path from submission to confirmation</h2><div className="journey-grid">{[['1','Citizen reports','Category, description, optional photo and location'],['2','Admin assigns','A registered field worker receives the task'],['3','Worker updates','Inspection and cleaning stages are recorded'],['4','Worker resolves','Completion photo and notes are required'],['5','Admin verifies','The citizen can then confirm the result']].map(step=><article key={step[0]}><span>{step[0]}</span><b>{step[1]}</b><p>{step[2]}</p></article>)}</div></section>
-    <section className="gov-ready"><div><p className="label">Pilot scope</p><h2>Built for controlled campus or ward evaluation</h2><p>The current prototype demonstrates role-based reporting and verification. Government use would require authorised ownership, security and accessibility assessment, compliant hosting, verified operational data, and a measured pilot.</p></div><div className="readiness-grid"><article><b>4</b><span>Guidance streams</span></article><article><b>7</b><span>Report statuses</span></article><article><b>3</b><span>Operational roles</span></article><article><b>Pilot</b><span>Not an official service</span></article></div></section>
+    <section className="gov-ready"><div><p className="label">Pilot scope</p><h2>Built for controlled campus or ward evaluation</h2><p>The current prototype demonstrates role-based reporting and verification. Government use would require authorised ownership, security and accessibility assessment, compliant hosting, verified operational data, and a measured pilot.</p></div><div className="readiness-grid"><article><b>4</b><span>Guidance streams</span></article><article><b>7</b><span>Report statuses</span></article><article><b>Secure</b><span>Account-based access</span></article><article><b>Pilot</b><span>Not an official service</span></article></div></section>
   </main>;
 }
 
@@ -264,6 +263,7 @@ function Citizen({ home }) {
   const [modal,setModal]=useState(''); const [last,setLast]=useState(null);
   const {user,refresh}=useAuth(); const points=user?.green_credits ?? 0;
   useEffect(()=>{ if(!modal) refresh(); },[modal,refresh]);
+  if (user && user.role !== 'Citizen') return null;
   return <main className="citizen" id="main-content"><a className="skip" href="#citizen-actions">Skip to reporting actions</a><header><div className="top"><button onClick={home} aria-label="About GreenPulse">ⓘ</button><h1>Green Pulse</h1><button className="track-top" onClick={()=>setModal('reports')}>My Reports</button></div><div className="quick-report"><div><p>See waste? Report it now.</p><h2>Add a description, location and optional photo</h2></div><button onClick={()=>setModal('report')}>📷 Report an issue</button></div></header>
     <section className="actions" id="citizen-actions" tabIndex={-1}><button className="red primary-action" onClick={()=>setModal('report')}><Icon color="red">📷</Icon><b>Capture & Report</b><small>Add a location, details and optional photo</small></button><button className="green" onClick={()=>setModal('reports')}><Icon color="green">📋</Icon><b>Track My Reports</b><small>See queue, inspection and cleaning status</small></button><button className="blue" onClick={()=>setModal('guide')}><Icon color="blue">♻️</Icon><b>Segregation Guide</b></button><button className="green" onClick={()=>setModal('bins')}><Icon color="green">📍</Icon><b>Nearby Bins</b></button><button className="yellow" onClick={()=>setModal('wallet')}><Icon color="yellow">🎁</Icon><b>Eco Points: {points}</b></button><button className="blue" onClick={()=>setModal('scan')}><Icon color="blue">🤖</Icon><b>AI Segregation Assistant</b><small>Identify an item and find its correct bin</small></button></section>
     <section className="impact"><p className="label">Your civic impact</p><div><span>♻️ &nbsp; Waste Sorted</span><b>Not measured</b></div><div><span>📣 &nbsp; Issues Reported</span><b>{last?'View My Reports':'—'}</b></div><div><span>🏆 &nbsp; Campus Rank</span><b>Not ranked</b></div>{last&&<small>Latest report: #{last}</small>}</section>
@@ -280,33 +280,33 @@ function Map({ reports }) {
   return <section className="operations-map" aria-label="Solapur pilot operations map"><div className="map" ref={el}/>{mapError&&<p role="status">{mapError}</p>}{outliers>0&&<p role="status">⚠ {outliers} report{outliers===1?' has':'s have'} coordinates outside the Solapur pilot area and {outliers===1?'is':'are'} excluded from map zoom. Review the coordinates before assignment.</p>}</section>;
 }
 
-function Admin({home}) { return <Access role="Admin" close={home}><Operations home={home} Map={Map}/></Access>; }
-function Staff({home}) { return <Access role="Driver" close={home}><FieldWorkerOperations home={home}/></Access>; }
+function Admin({home}) { return <Access role="Admin" close={home}><Operations Map={Map}/></Access>; }
+function Staff({home}) { return <Access role="Driver" close={home}><FieldWorkerOperations/></Access>; }
 
 function AppContent() {
   const initialPolicy = new URLSearchParams(window.location.search).get('policy');
   const [view, setView] = useState(initialPolicy ? 'legal' : 'citizen');
   const [policy, setPolicy] = useState(initialPolicy || 'privacy');
   const [online, setOnline] = useState(navigator.onLine);
-  const { user } = useAuth();
-  const restoredSessionRouted = useRef(false);
+  const { user, authReady, openLogin } = useAuth();
 
   useEffect(() => {
     const yes = () => setOnline(true), no = () => setOnline(false);
     window.addEventListener('online', yes); window.addEventListener('offline', no);
     return () => { window.removeEventListener('online', yes); window.removeEventListener('offline', no); };
   }, []);
-  useEffect(() => {
-    if (restoredSessionRouted.current || initialPolicy || !user) return;
-    restoredSessionRouted.current = true;
-    const destination = user.role === 'Driver' ? 'staff' : user.role === 'Admin' ? 'admin' : '';
-    if (destination) queueMicrotask(() => setView(destination));
-  }, [initialPolicy, user]);
-
   function openPolicy(id) { setPolicy(id); setView('legal'); window.history.replaceState({}, '', `?policy=${id}`); window.scrollTo(0, 0); }
   function home() { window.history.replaceState({}, '', window.location.pathname); setView('citizen'); window.scrollTo(0, 0); }
   if (view === 'legal') return <LegalPage page={policy} onBack={home}/>;
-  return <><div className={`network ${online ? 'online' : 'offline'}`}>{online ? 'Online' : 'Offline — reporting and status updates unavailable'}</div>{view === 'citizen' ? <Citizen home={() => setView('home')}/> : view === 'admin' ? <Admin home={() => setView('home')}/> : view === 'staff' ? <Staff home={() => setView('home')}/> : <Landing citizen={() => setView('citizen')} admin={() => setView('admin')} staff={() => setView('staff')}/>}<LegalFooter onOpen={openPolicy}/></>;
+  if (!authReady) return <main className="workspace-loading" aria-live="polite"><div><span aria-hidden="true">🍃</span><h1>Green Pulse</h1><p>Opening your secure workspace…</p></div></main>;
+  const workspace = user?.role === 'Admin'
+    ? <Admin home={home}/>
+    : user?.role === 'Driver'
+      ? <Staff home={home}/>
+      : view === 'home'
+        ? <Landing citizen={() => setView('citizen')} signIn={openLogin}/>
+        : <Citizen home={() => setView('home')}/>;
+  return <><div className={`network ${online ? 'online' : 'offline'}`}>{online ? 'Online' : 'Offline — reporting and status updates unavailable'}</div>{workspace}<LegalFooter onOpen={openPolicy}/></>;
 }
 
 export default function App(){return <AuthProvider><AppContent/></AuthProvider>;}

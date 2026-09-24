@@ -27,15 +27,20 @@ function useDialogFocus(active) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [error, setError] = useState('');
+  const [authReady, setAuthReady] = useState(!hasToken());
+  const [loginOpen, setLoginOpen] = useState(false);
   const userId = user?.id;
   const refresh = useCallback(async () => {
     if (userId) try { setUser(await api('/auth/me')); } catch (e) { setError(e.message); }
   }, [userId]);
   useEffect(() => {
-    const expired = () => { setUser(null); setError('Session expired. Please sign in again.'); };
+    const expired = () => { setUser(null); setAuthReady(true); setError('Session expired. Please sign in again.'); };
     window.addEventListener('greenpulse-session-expired', expired);
     let active = true;
-    if (hasToken()) api('/auth/me').then(account => { if (active) setUser(account); }).catch(e => { if (active) setError(e.message); });
+    if (hasToken()) api('/auth/me')
+      .then(account => { if (active) setUser(account); })
+      .catch(e => { if (active) setError(e.message); })
+      .finally(() => { if (active) setAuthReady(true); });
     return () => { active = false; window.removeEventListener('greenpulse-session-expired', expired); };
   }, []);
   async function logout() {
@@ -44,13 +49,15 @@ export function AuthProvider({ children }) {
       setToken(''); setUser(null); setError('');
     } catch (e) { setError(`${e.message} Sign-out was not confirmed; retry before leaving this device.`); }
   }
-  return <Auth.Provider value={{ user, setUser, refresh }}>
-    <div className="account-bar">{user ? <><span>{user.name} · {user.role === 'Driver' ? 'Field worker' : user.role}</span><button onClick={logout}>Sign out</button></> : <span>Secure reporting · Sign in when you submit or track a report</span>}{error && <p role="alert">{error}</p>}</div>
+  function openLogin() { setError(''); setLoginOpen(true); }
+  return <Auth.Provider value={{ user, setUser, refresh, authReady, openLogin }}>
+    <div className="account-bar">{!authReady ? <span role="status">Restoring your secure session…</span> : user ? <><span>{user.name} · {user.role === 'Driver' ? 'Field worker' : user.role}</span><button onClick={logout}>Sign out</button></> : <><span>Secure reporting · Your account opens the correct workspace</span><button className="account-login" onClick={openLogin}>Sign in</button></>}{error && <p role="alert">{error}</p>}</div>
     {children}
+    {loginOpen && !user && <Access role={null} close={() => setLoginOpen(false)} allowRegistration onAuthenticated={() => setLoginOpen(false)}/>}
   </Auth.Provider>;
 }
 
-export function Access({ role, children, close }) {
+export function Access({ role, children, close, allowRegistration = role === 'Citizen', onAuthenticated }) {
   const { user, setUser } = useAuth();
   const [register, setRegister] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
   const panel = useRef(null), previousFocus = useRef(null);
@@ -80,11 +87,11 @@ export function Access({ role, children, close }) {
         setRegister(false); setMessage('Account created. Now sign in.');
       } else {
         const result = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
-        setToken(result.token); setUser(result.user);
+        setToken(result.token); setUser(result.user); onAuthenticated?.(result.user);
       }
     } catch (e) { setMessage(e.message); } finally { setBusy(false); }
   }
-  if (user) return user.role === role ? children : <section className="security-panel"><h2>Restricted workspace</h2><p>Sign out and use an authorized {role === 'Driver' ? 'field worker' : role.toLowerCase()} account.</p>{close && <button onClick={close}>Back</button>}</section>;
+  if (user) return !role || user.role === role ? (children || null) : <section className="security-panel"><h2>Restricted workspace</h2><p>This account opens its own workspace automatically. Sign out before using a different account.</p>{close && <button onClick={close}>Back</button>}</section>;
   return <div className={close ? 'shade' : undefined}><section ref={panel} className="security-panel" role={close ? 'dialog' : undefined} aria-modal={close ? true : undefined} aria-label="Account access" onKeyDown={dialogKeys}><h2>{register ? 'Create citizen account' : 'Sign in securely'}</h2><p>Your reports and points belong to your account. Staff accounts are issued by an operator.</p>
     <form onSubmit={submit}>{register && <label>Name<input name="name" required maxLength={80} autoComplete="name"/></label>}
       <label>Email<input name="email" type="email" required maxLength={254} autoComplete="username"/></label>
@@ -92,7 +99,7 @@ export function Access({ role, children, close }) {
       <small>At least 12 characters. Sign-in survives reloads in this tab; sign out when using a shared device.</small>
       {register && <><label className="consent"><input name="legal-consent" type="checkbox" required/><span>I agree to the <a href="?policy=terms" target="_blank" rel="noreferrer">Terms and Conditions</a> and acknowledge the <a href="?policy=privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</span></label><p className="legal-notice">Create an account only if you are 18 or older. A supervised institutional pilot involving children requires an approved guardian-consent process.</p></>}
       <button type="submit" className="dark" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create citizen account' : 'Sign in to GreenPulse'}</button>
-    </form>{message && <p role="status">{message}</p>}{role === 'Citizen' && <button type="button" onClick={() => { setRegister(!register); setMessage(''); }}>{register ? 'Use an existing account' : 'Create a citizen account'}</button>}
+    </form>{message && <p role="status">{message}</p>}{allowRegistration && <button type="button" onClick={() => { setRegister(!register); setMessage(''); }}>{register ? 'Use an existing account' : 'Create a citizen account'}</button>}
     <p className="privacy-note">Student pilot: use demonstration data only. Report information is shared with authorised operators. No real voucher redemption is available.</p>
     {close && <button type="button" onClick={close}>Cancel sign in</button>}
   </section></div>;
@@ -162,7 +169,7 @@ const formatTaskTime = value => {
 };
 const formatCoordinates = report => `${Number(report.location_lat).toFixed(5)}, ${Number(report.location_lng).toFixed(5)}`;
 
-export function FieldWorkerOperations({ home }) {
+export function FieldWorkerOperations() {
   const { rows, message, setMessage, load } = useReports();
   const { user } = useAuth();
   const [query, setQuery] = useState(''), [scope, setScope] = useState('active');
@@ -236,7 +243,6 @@ export function FieldWorkerOperations({ home }) {
   return <main className="staff" id="main-content">
     <a className="skip" href="#worker-task-queue">Skip to assigned tasks</a>
     <header className="worker-header">
-      <button type="button" onClick={home}>← Home</button>
       <div><span className="worker-kicker">Field operations</span><h1>My assigned work</h1><p>{user?.name} · Only tasks assigned to this account</p></div>
       <button type="button" onClick={load} disabled={busy}>Refresh tasks</button>
     </header>
@@ -280,11 +286,30 @@ export function FieldWorkerOperations({ home }) {
   </main>;
 }
 
-export function Operations({ home, Map, staffMode = false }) {
+function CitizenPreview({ close }) {
+  const { dialog, keys } = useDialogFocus(true);
+  return <div className="shade" onMouseDown={event => event.target === event.currentTarget && close()}>
+    <section ref={dialog} tabIndex={-1} className="modal citizen-preview" role="dialog" aria-modal="true" aria-labelledby="citizen-preview-title" onKeyDown={event => keys(event, close)}>
+      <header><div><span>Read-only preview</span><h2 id="citizen-preview-title">Citizen experience</h2><p>This preview shows the citizen journey without enabling reports, AI scans, points or citizen data.</p></div><button type="button" className="modal-close" onClick={close} aria-label="Close citizen preview">×</button></header>
+      <div className="citizen-preview-callout"><b>See waste? Report it now.</b><small>Description + GPS + optional photo</small></div>
+      <div className="citizen-preview-actions" role="list" aria-label="Citizen features shown as a preview">
+        <article role="listitem"><span aria-hidden="true">📷</span><b>Capture &amp; Report</b><small>Submit a geotagged issue</small></article>
+        <article role="listitem"><span aria-hidden="true">📋</span><b>Track My Reports</b><small>Follow each cleaning stage</small></article>
+        <article role="listitem"><span aria-hidden="true">♻️</span><b>Segregation Guide</b><small>Choose the correct waste stream</small></article>
+        <article role="listitem"><span aria-hidden="true">🤖</span><b>AI Assistant</b><small>Identify an item before disposal</small></article>
+      </div>
+      <p className="citizen-preview-note">Preview only. Administrators cannot submit or modify citizen reports from this view.</p>
+      <button type="button" className="worker-secondary" onClick={close}>Return to admin operations</button>
+    </section>
+  </div>;
+}
+
+export function Operations({ Map, staffMode = false }) {
   const { rows, message, setMessage, load } = useReports();
   const { user } = useAuth();
   const [query, setQuery] = useState(''), [selected, setSelected] = useState(null), [audit, setAudit] = useState([]);
   const [workers, setWorkers] = useState([]), [managedStaff, setManagedStaff] = useState([]), [busy, setBusy] = useState(false), [proof, setProof] = useState('');
+  const [previewOpen, setPreviewOpen] = useState(false);
   const { dialog, keys } = useDialogFocus(Boolean(selected));
   useEffect(() => { if (!staffMode) { api('/auth/staff').then(setWorkers).catch(e => setMessage(e.message)); if (user?.is_owner) api('/auth/staff/manage').then(setManagedStaff).catch(e => setMessage(e.message)); } }, [staffMode, setMessage, user?.is_owner]);
   async function inspect(id) {
@@ -322,10 +347,11 @@ export function Operations({ home, Map, staffMode = false }) {
   }
   const shown = rows.filter(r => `${r.id} ${r.waste_type} ${r.status}`.toLowerCase().includes(query.toLowerCase()));
   const next = selected && (staffMode ? { Assigned: 'In progress', 'In progress': 'Cleaning', Cleaning: 'Resolved' } : { Pending: 'Assigned', Resolved: 'Verified' })[selected.status];
-  return <main className={staffMode ? 'staff' : 'admin'} id="main-content"><a className="skip" href="#operations-queue">Skip to operations queue</a><header><button onClick={home}>← Home</button><div><h1>{staffMode ? 'Municipal Field Workspace' : 'Admin Operations Centre'}</h1><p>Authenticated, server-recorded workflow</p></div><button onClick={load}>Refresh reports</button></header>
+  return <main className={staffMode ? 'staff' : 'admin'} id="main-content"><a className="skip" href="#operations-queue">Skip to operations queue</a><header><div><h1>{staffMode ? 'Municipal Field Workspace' : 'Admin Operations Centre'}</h1><p>Authenticated, server-recorded workflow</p></div><div className="admin-header-actions">{!staffMode && <button type="button" className="citizen-preview-button" onClick={() => setPreviewOpen(true)}>Preview citizen view</button>}<button type="button" onClick={load}>Refresh reports</button></div></header>
     <section className="analytics"><div><b>{rows.length}</b><span>Loaded reports</span></div><div><b>{rows.filter(r => r.status === 'Pending').length}</b><span>Pending</span></div><div><b>{rows.filter(r => ['Assigned', 'In progress', 'Cleaning'].includes(r.status)).length}</b><span>Active</span></div><div><b>{rows.filter(r => ['Verified', 'Citizen confirmed'].includes(r.status)).length}</b><span>Verified</span></div></section>
     {!staffMode && <>{user?.is_owner&&<section className="staff-admin"><div><h2>Owner account administration</h2><p>Only the GreenPulse owner can create or revoke administrator and field-worker accounts. Share temporary passwords privately.</p></div><form onSubmit={createStaff}><label>Full name<input name="name" required maxLength={80}/></label><label>Email<input name="email" type="email" required maxLength={254}/></label><label>Temporary password<input name="password" type="password" required minLength={12} maxLength={128} autoComplete="new-password"/></label><label>Role<select name="role" defaultValue="Driver"><option value="Driver">Field worker</option><option value="Admin">Administrator</option></select></label><button disabled={busy}>Create staff account</button></form><div className="staff-directory"><h3>Owner controls</h3><p>Revoke staff access without deleting audit history.</p>{managedStaff.map(account=><article key={account.id}><span><b>{account.name}</b><small>{account.email} · {account.role === 'Driver' ? 'Field worker' : account.role}</small></span>{account.is_owner?<strong>Owner</strong>:<button type="button" disabled={busy} onClick={()=>revokeStaff(account)}>Revoke access</button>}</article>)}</div></section>}<Map reports={shown}/></>}
     <section className="list" id="operations-queue" tabIndex={-1}><h2>{staffMode ? 'Your assigned tasks' : 'Operations queue'}</h2><label className="queue-search">Find a report<input type="search" placeholder="Search category, status or report number" value={query} onChange={e => setQuery(e.target.value)}/></label><p role="status">{message}</p>{!shown.length && <p>No reports match this queue. Try another search or refresh the reports.</p>}{shown.map(r => <article className="report-row" key={r.id}><span><b>#{r.id} · {r.waste_type}</b><small>{r.severity} · {r.status}</small></span><button disabled={busy} onClick={() => inspect(r.id)}>Review report #{r.id}</button></article>)}</section>
+    {previewOpen && !staffMode && <CitizenPreview close={() => setPreviewOpen(false)}/>}
     {selected && <div className="shade"><section ref={dialog} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="review-report-title" onKeyDown={event => keys(event, () => setSelected(null), busy)}><h2 id="review-report-title">Report #{selected.id}</h2><p>{selected.waste_type} · {selected.status}</p>{selected.image_url?.startsWith('data:image/') && <img className="evidence" src={selected.image_url} alt={`Reported waste or sanitation issue for report ${selected.id}`}/>}{selected.proof_image_url?.startsWith('data:image/') && <><h3>Completion evidence</h3><img className="evidence" src={selected.proof_image_url} alt={`Cleaning completion evidence for report ${selected.id}`}/></>}<p>{selected.completion_note}</p>
       {next && <form onSubmit={change}><input type="hidden" name="status" value={next}/>{next === 'Assigned' && <label>Assign field worker<select name="assigned_to" required defaultValue=""><option value="" disabled>Select a worker</option>{workers.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>{!workers.length && <p>Create a field-worker account using the trusted operator console first.</p>}</label>}{next === 'Verified' && <label>Actual waste scale<select name="scale" required><option value="small">Small · 10 points</option><option value="medium">Medium · 20 points</option><option value="large">Large · 30 points</option><option value="false">No waste found · 0 points</option></select></label>}{['Resolved', 'Verified'].includes(next) && <label>{next === 'Verified' ? 'Verification findings' : 'Cleaning and disposal notes'}<textarea name="note" required maxLength={1000}/></label>}{next === 'Resolved' && <label>Completion photo (under 2 MB)<input type="file" required accept="image/jpeg,image/png,image/webp" capture="environment" onChange={async e => { try { setProof(await readPhoto(e.target.files?.[0])); } catch (err) { setProof(''); setMessage(err.message); } }}/></label>}<button className="dark" disabled={busy || (next === 'Resolved' && !proof)}>Save: {next}</button></form>}
       <p role="status">{message}</p><h3>Server audit history</h3>{audit.map((a, i) => <p key={i}>{a.action} · {new Date(a.time).toLocaleString()}</p>)}<button type="button" disabled={busy} onClick={() => setSelected(null)}>Close report review</button>
