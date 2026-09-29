@@ -1,6 +1,6 @@
 # GreenPulse — Main Source Repository
 
-GreenPulse is a mobile-first waste and sanitation reporting platform led by **Pritam Rathod** for SIH 2026 Problem Statement 26195.
+GreenPulse is a mobile-first waste and sanitation reporting platform from SIH team **Green_Pulse**, led by **Aditya Sardeshmukh**, for SIH 2026 Problem Statement 26195. The project website is owned and maintained by **Pritam Rathod**.
 
 ## Repository role
 

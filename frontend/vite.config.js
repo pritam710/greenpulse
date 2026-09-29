@@ -13,7 +13,7 @@ export default defineConfig(({ mode, command }) => {
       transformIndexHtml() {
         if (command !== 'build') return [];
         return [{ tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content:
-          `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; connect-src 'self' ${apiOrigin}; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'` }, injectTo: 'head-prepend' }];
+          `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; connect-src 'self' ${apiOrigin}; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'` }, injectTo: 'head-prepend' }];
       },
     }],
   };

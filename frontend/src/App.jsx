@@ -8,6 +8,12 @@ import { useAuth } from './auth-context';
 import { LegalFooter, LegalPage } from './Legal';
 const CAMPUS = { lat: 17.6599, lng: 75.9064 };
 const PILOT_BOUNDS = { south: 16.9, north: 18.4, west: 74.9, east: 76.9 };
+const MAP_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const MAP_TILE_OPTIONS = {
+  maxZoom: 19,
+  referrerPolicy: 'strict-origin-when-cross-origin',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+};
 const inPilotArea = report => Number.isFinite(Number(report.location_lat)) && Number.isFinite(Number(report.location_lng)) &&
   Number(report.location_lat) >= PILOT_BOUNDS.south && Number(report.location_lat) <= PILOT_BOUNDS.north &&
   Number(report.location_lng) >= PILOT_BOUNDS.west && Number(report.location_lng) <= PILOT_BOUNDS.east;
@@ -45,7 +51,7 @@ function Modal({ title, close, children }) {
 function Landing({ citizen, signIn }) {
   const { user } = useAuth();
   return <main className="landing">
-    <a className="skip" href="#main-content">Skip to content</a><section className="hero"><div className="hero-glow"/><div className="logo" aria-hidden="true">🍃</div><p className="hero-kicker">SIH 26195 · Clean & Green Technology</p><h1>Green Pulse</h1><h2>From segregation guidance to verified resolution.</h2><p className="hero-copy">A student-built waste identification, segregation and reporting pilot for campuses and wards.</p><div className="hero-actions"><button onClick={citizen}>Open citizen reporting</button><button className="hero-signin" onClick={user ? citizen : signIn}>{user ? 'Return to citizen dashboard' : 'Sign in to your account'}</button></div><div className="trust-row"><span>AI-assisted segregation</span><span>GIS report map</span><span>Server-recorded workflow</span></div></section>
+    <a className="skip" href="#main-content">Skip to content</a><section className="hero"><div className="hero-glow"/><div className="logo" aria-hidden="true">🍃</div><p className="hero-kicker">SIH 26195 · Team Green_Pulse · Clean & Green Technology</p><h1>Green Pulse</h1><h2>From segregation guidance to verified resolution.</h2><p className="hero-copy">A student-built waste identification, segregation and reporting pilot for campuses and wards.</p><div className="hero-actions"><button onClick={citizen}>Open citizen reporting</button><button className="hero-signin" onClick={user ? citizen : signIn}>{user ? 'Return to citizen dashboard' : 'Sign in to your account'}</button></div><div className="trust-row"><span>AI-assisted segregation</span><span>GIS report map</span><span>Server-recorded workflow</span></div></section>
     <section id="main-content" className="features"><p className="label">Platform capabilities</p>
       <article><Icon color="green">🤖</Icon><div><b>AI Segregation Assistant</b><p>Identifies an item from up to three photos and asks for better evidence instead of guessing.</p></div></article>
       <article><Icon color="blue">♻️</Icon><div><b>Four-Stream Segregation</b><p>Guidance for wet, dry, sanitary and special-care waste.</p></div></article>
@@ -249,7 +255,9 @@ function NearbyBins({ close }) {
     import('leaflet').then(({ default: L }) => {
       if (disposed || !mapElement.current) return;
       map.current=L.map(mapElement.current).setView([position.lat,position.lng],15);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map.current);
+      L.tileLayer(MAP_TILE_URL, MAP_TILE_OPTIONS)
+        .on('tileerror', () => setNotice('The basemap could not load. The verified demo bin list remains available below.'))
+        .addTo(map.current);
       DEMO_BINS.forEach(bin=>L.circleMarker([bin.lat,bin.lng],{radius:11,color:'#07883c',fillColor:'#22c55e',fillOpacity:.9}).addTo(map.current).bindPopup(`<b>${bin.name}</b><br>${bin.type}`));
       L.circleMarker([position.lat,position.lng],{radius:9,color:'#1d4ed8',fillColor:'#60a5fa',fillOpacity:1}).addTo(map.current).bindPopup('<b>Your position</b>');
       observer=new ResizeObserver(()=>map.current?.invalidateSize()); observer.observe(mapElement.current); setTimeout(()=>map.current?.invalidateSize(),100);
@@ -274,7 +282,7 @@ function Citizen({ home }) {
 function Map({ reports }) {
   const el=useRef(null), map=useRef(null), leaflet=useRef(null);
   const [mapReady,setMapReady]=useState(false), [mapError,setMapError]=useState('');
-  useEffect(()=>{if(!el.current||map.current)return;let disposed=false,observer;const resize=()=>map.current?.invalidateSize();import('leaflet').then(({default:L})=>{if(disposed||!el.current)return;leaflet.current=L;map.current=L.map(el.current).setView([CAMPUS.lat,CAMPUS.lng],13);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map.current);observer=new ResizeObserver(resize);observer.observe(el.current);window.addEventListener('resize',resize);setTimeout(resize,100);setMapReady(true)}).catch(()=>setMapError('The map could not load. Reports remain available in the operations queue.'));return()=>{disposed=true;observer?.disconnect();window.removeEventListener('resize',resize);map.current?.remove();map.current=null;leaflet.current=null}},[]);
+  useEffect(()=>{if(!el.current||map.current)return;let disposed=false,observer;const resize=()=>map.current?.invalidateSize();import('leaflet').then(({default:L})=>{if(disposed||!el.current)return;leaflet.current=L;map.current=L.map(el.current).setView([CAMPUS.lat,CAMPUS.lng],13);L.tileLayer(MAP_TILE_URL,MAP_TILE_OPTIONS).on('tileerror',()=>setMapError('The basemap could not load. Reports remain available in the operations queue.')).addTo(map.current);observer=new ResizeObserver(resize);observer.observe(el.current);window.addEventListener('resize',resize);setTimeout(resize,100);setMapReady(true)}).catch(()=>setMapError('The map could not load. Reports remain available in the operations queue.'));return()=>{disposed=true;observer?.disconnect();window.removeEventListener('resize',resize);map.current?.remove();map.current=null;leaflet.current=null}},[]);
   const outliers=reports.filter(report=>!inPilotArea(report)).length;
   useEffect(()=>{const L=leaflet.current;if(!mapReady||!map.current||!L)return;const localReports=reports.filter(inPilotArea);map.current.eachLayer(x=>x instanceof L.CircleMarker&&x.remove());localReports.forEach(r=>L.circleMarker([r.location_lat,r.location_lng],{radius:10,color:r.status==='Pending'?'#dc2626':'#16a34a',fillOpacity:.85}).addTo(map.current).bindPopup(Object.assign(document.createElement('span'),{textContent:`Report #${r.id} · ${r.waste_type} · ${r.status}`})));if(localReports.length>1)map.current.fitBounds(localReports.map(r=>[r.location_lat,r.location_lng]),{padding:[30,30],maxZoom:15});else if(localReports.length===1)map.current.setView([localReports[0].location_lat,localReports[0].location_lng],15);else map.current.setView([CAMPUS.lat,CAMPUS.lng],13)},[reports,mapReady]);
   return <section className="operations-map" aria-label="Solapur pilot operations map"><div className="map" ref={el}/>{mapError&&<p role="status">{mapError}</p>}{outliers>0&&<p role="status">⚠ {outliers} report{outliers===1?' has':'s have'} coordinates outside the Solapur pilot area and {outliers===1?'is':'are'} excluded from map zoom. Review the coordinates before assignment.</p>}</section>;
