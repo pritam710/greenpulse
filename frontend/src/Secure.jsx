@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, hasToken, readPhoto, setToken } from './api';
+import { api, hasToken, readPhoto, setToken, warmApi } from './api';
 import './security.css';
 import { Auth, useAuth } from './auth-context';
 
@@ -29,7 +29,14 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState('');
   const [authReady, setAuthReady] = useState(!hasToken());
   const [loginOpen, setLoginOpen] = useState(false);
+  const [serverStatus, setServerStatus] = useState('starting');
   const userId = user?.id;
+  const prepareServer = useCallback(async (force = false) => {
+    setServerStatus('starting');
+    const result = await warmApi({ force });
+    setServerStatus(result.ready ? 'ready' : 'unavailable');
+    return result;
+  }, []);
   const refresh = useCallback(async () => {
     if (userId) try { setUser(await api('/auth/me')); } catch (e) { setError(e.message); }
   }, [userId]);
@@ -37,6 +44,7 @@ export function AuthProvider({ children }) {
     const expired = () => { setUser(null); setAuthReady(true); setError('Session expired. Please sign in again.'); };
     window.addEventListener('greenpulse-session-expired', expired);
     let active = true;
+    void warmApi().then(result => { if (active) setServerStatus(result.ready ? 'ready' : 'unavailable'); });
     if (hasToken()) api('/auth/me')
       .then(account => { if (active) setUser(account); })
       .catch(e => { if (active) setError(e.message); })
@@ -49,16 +57,22 @@ export function AuthProvider({ children }) {
       setToken(''); setUser(null); setError('');
     } catch (e) { setError(`${e.message} Sign-out was not confirmed; retry before leaving this device.`); }
   }
-  function openLogin() { setError(''); setLoginOpen(true); }
-  return <Auth.Provider value={{ user, setUser, refresh, authReady, openLogin }}>
-    <div className="account-bar">{!authReady ? <span role="status">Restoring your secure session…</span> : user ? <><span>{user.name} · {user.role === 'Driver' ? 'Field worker' : user.role}</span><button onClick={logout}>Sign out</button></> : <><span>Secure reporting · Your account opens the correct workspace</span><button className="account-login" onClick={openLogin}>Sign in</button></>}{error && <p role="alert">{error}</p>}</div>
+  function openLogin() {
+    setError(''); setLoginOpen(true);
+    if (serverStatus === 'unavailable') void prepareServer(true);
+  }
+  const serverLabel = serverStatus === 'ready' ? 'Secure server ready'
+    : serverStatus === 'starting' ? 'Starting secure server…'
+      : 'Secure server unavailable — retry sign-in when connected';
+  return <Auth.Provider value={{ user, setUser, refresh, authReady, openLogin, serverStatus, prepareServer }}>
+    <div className="account-bar">{!authReady ? <span role="status">Restoring your secure session…</span> : user ? <><span>{user.name} · {user.role === 'Driver' ? 'Field worker' : user.role}</span>{user.demo_account && <span className="demo-account-badge">Demo account</span>}<button onClick={logout}>Sign out</button></> : <><span role="status" aria-live="polite">{serverLabel}</span><button className="account-login" onClick={openLogin}>Sign in</button></>}{error && <p role="alert">{error}</p>}</div>
     {children}
     {loginOpen && !user && <Access role={null} close={() => setLoginOpen(false)} allowRegistration onAuthenticated={() => setLoginOpen(false)}/>}
   </Auth.Provider>;
 }
 
 export function Access({ role, children, close, allowRegistration = role === 'Citizen', onAuthenticated }) {
-  const { user, setUser } = useAuth();
+  const { user, setUser, serverStatus, prepareServer } = useAuth();
   const [register, setRegister] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
   const panel = useRef(null), previousFocus = useRef(null);
   useEffect(() => {
@@ -78,9 +92,11 @@ export function Access({ role, children, close, allowRegistration = role === 'Ci
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
   async function submit(event) {
-    event.preventDefault(); setBusy(true); setMessage('');
+    event.preventDefault(); setBusy(true);
+    setMessage(register ? 'Creating your citizen account…' : serverStatus === 'starting' ? 'The secure server is starting. Signing you in…' : 'Signing in securely…');
     const fields = new FormData(event.currentTarget);
     const body = { email: fields.get('email'), password: fields.get('password') };
+    const slowNotice = window.setTimeout(() => setMessage('The free demo server is waking up. Keep this page open; sign-in will continue automatically.'), 5000);
     try {
       if (register) {
         await api('/auth/register', { method: 'POST', body: JSON.stringify({ ...body, name: fields.get('name'), consent_accepted: true, policy_version: '2026-09-06' }) });
@@ -89,17 +105,22 @@ export function Access({ role, children, close, allowRegistration = role === 'Ci
         const result = await api('/auth/login', { method: 'POST', body: JSON.stringify(body) });
         setToken(result.token); setUser(result.user); onAuthenticated?.(result.user);
       }
-    } catch (e) { setMessage(e.message); } finally { setBusy(false); }
+    } catch (e) { setMessage(e.message); } finally { window.clearTimeout(slowNotice); setBusy(false); }
   }
   if (user) return !role || user.role === role ? (children || null) : <section className="security-panel"><h2>Restricted workspace</h2><p>This account opens its own workspace automatically. Sign out before using a different account.</p>{close && <button onClick={close}>Back</button>}</section>;
+  const readinessText = serverStatus === 'ready' ? 'Secure server ready.'
+    : serverStatus === 'starting' ? 'Starting the secure server before sign-in. Free hosting can take up to a minute after inactivity.'
+      : 'The secure server could not be reached. Check your connection or retry the server check.';
   return <div className={close ? 'shade' : undefined}><section ref={panel} className="security-panel" role={close ? 'dialog' : undefined} aria-modal={close ? true : undefined} aria-label="Account access" onKeyDown={dialogKeys}><h2>{register ? 'Create citizen account' : 'Sign in securely'}</h2><p>Your reports and points belong to your account. Staff accounts are issued by an operator.</p>
-    <form onSubmit={submit}>{register && <label>Name<input name="name" required maxLength={80} autoComplete="name"/></label>}
+    <div className={`server-readiness ${serverStatus}`} role="status" aria-live="polite"><span>{readinessText}</span>{serverStatus === 'unavailable' && <button type="button" onClick={() => void prepareServer(true)}>Retry server check</button>}</div>
+    <form onSubmit={submit} aria-busy={busy}>{register && <label>Name<input name="name" required maxLength={80} autoComplete="name"/></label>}
       <label>Email<input name="email" type="email" required maxLength={254} autoComplete="username"/></label>
       <label>Password<input name="password" type="password" required minLength={12} maxLength={128} autoComplete={register ? 'new-password' : 'current-password'}/></label>
       <small>At least 12 characters. Sign-in survives reloads in this tab; sign out when using a shared device.</small>
       {register && <><label className="consent"><input name="legal-consent" type="checkbox" required/><span>I agree to the <a href="?policy=terms" target="_blank" rel="noreferrer">Terms and Conditions</a> and acknowledge the <a href="?policy=privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</span></label><p className="legal-notice">Create an account only if you are 18 or older. A supervised institutional pilot involving children requires an approved guardian-consent process.</p></>}
-      <button type="submit" className="dark" disabled={busy}>{busy ? 'Please wait…' : register ? 'Create citizen account' : 'Sign in to GreenPulse'}</button>
+      <button type="submit" className="dark" disabled={busy}>{busy ? register ? 'Creating account…' : 'Signing in…' : register ? 'Create citizen account' : 'Sign in to GreenPulse'}</button>
     </form>{message && <p role="status">{message}</p>}{allowRegistration && <button type="button" onClick={() => { setRegister(!register); setMessage(''); }}>{register ? 'Use an existing account' : 'Create a citizen account'}</button>}
+    {!register && <p className="demo-account-note"><b>Evaluator demo accounts:</b> Shared administrator, field-worker and citizen accounts use demonstration data and limited role permissions. The private owner account is never shared.</p>}
     <p className="privacy-note">Student pilot: use demonstration data only. Report information is shared with authorised operators. No real voucher redemption is available.</p>
     {close && <button type="button" onClick={close}>Cancel sign in</button>}
   </section></div>;

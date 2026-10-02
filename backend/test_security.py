@@ -20,6 +20,7 @@ from PIL import Image
 import main
 from main import app
 from database import engine, SessionLocal
+from evaluator_demo import DEMO_ACCOUNTS
 import models
 import security
 from config import settings
@@ -214,6 +215,115 @@ class SecurityTests(unittest.TestCase):
         finally:
             settings.seed_demo_reports = previous_seed
             settings.bootstrap_admin_email = previous_owner
+
+    def test_evaluator_password_hashes_match_only_published_demo_passwords(self):
+        passwords = {
+            "Admin": "GP-Demo-Admin!2026",
+            "Driver": "GP-Demo-Worker!2026",
+            "Citizen": "GP-Demo-Citizen!2026",
+        }
+        self.assertEqual(set(DEMO_ACCOUNTS), set(passwords))
+        for role, password in passwords.items():
+            encoded = DEMO_ACCOUNTS[role]["password_hash"]
+            self.assertTrue(encoded.startswith("scrypt$"))
+            self.assertTrue(security.verify_password(password, encoded), role)
+            self.assertFalse(security.verify_password(password + "-wrong", encoded), role)
+            self.assertNotIn(password, encoded)
+
+    def test_evaluator_seed_is_idempotent_and_scoped_to_demo_accounts(self):
+        previous_enabled = settings.enable_evaluator_accounts
+        previous_owner = settings.bootstrap_admin_email
+        settings.enable_evaluator_accounts = True
+        settings.bootstrap_admin_email = "test3@example.test"
+        non_demo_report = self.create()
+        try:
+            with patch.object(main, "production", True):
+                main.seed_evaluator_demo()
+                main.seed_evaluator_demo()
+
+            with SessionLocal() as db:
+                accounts = {
+                    role: db.query(models.User).filter_by(email=details["email"]).one()
+                    for role, details in DEMO_ACCOUNTS.items()
+                }
+                for role, account in accounts.items():
+                    self.assertEqual(account.role, role)
+                    self.assertEqual(account.name, DEMO_ACCOUNTS[role]["name"])
+                    self.assertEqual(account.password_hash, DEMO_ACCOUNTS[role]["password_hash"])
+                    db.add(models.AuthSession(
+                        token_hash=security.token_hash(f"evaluator-{role}"),
+                        user_id=account.id,
+                        expires_at=time.time() + 1000,
+                    ))
+                demo_reports = db.query(models.Report).filter_by(
+                    citizen_id=accounts["Citizen"].id,
+                ).order_by(models.Report.id).all()
+                self.assertEqual(len(demo_reports), 6)
+                self.assertTrue(all(report.waste_type.startswith("[DEMO]") for report in demo_reports))
+                self.assertEqual(
+                    {report.status for report in demo_reports},
+                    {"Pending", "Assigned", "In progress", "Cleaning", "Resolved", "Verified"},
+                )
+                pending_id = next(report.id for report in demo_reports if report.status == "Pending")
+                demo_worker_id = accounts["Driver"].id
+                db.commit()
+
+            admin_headers = {"Authorization": "Bearer evaluator-Admin"}
+            worker_headers = {"Authorization": "Bearer evaluator-Driver"}
+            citizen_headers = {"Authorization": "Bearer evaluator-Citizen"}
+
+            admin_reports = self.client.get("/reports", headers=admin_headers)
+            self.assertEqual(admin_reports.status_code, 200, admin_reports.text)
+            self.assertEqual(len(admin_reports.json()), 6)
+            self.assertNotIn(non_demo_report, {row["id"] for row in admin_reports.json()})
+            self.assertEqual(self.client.get(f"/reports/{non_demo_report}", headers=admin_headers).status_code, 404)
+
+            visible_staff = self.client.get("/auth/staff", headers=admin_headers)
+            self.assertEqual(visible_staff.status_code, 200, visible_staff.text)
+            self.assertEqual(visible_staff.json(), [{"id": demo_worker_id, "name": DEMO_ACCOUNTS["Driver"]["name"]}])
+
+            body = {"name": "Unauthorized account", "email": "unauthorized@example.test",
+                    "password": self.password, "role": "Driver"}
+            self.assertEqual(self.client.post("/auth/staff", headers=admin_headers, json=body).status_code, 403)
+            self.assertEqual(self.client.get("/auth/staff/manage", headers=admin_headers).status_code, 403)
+            self.assertEqual(self.client.delete("/auth/staff/4", headers=admin_headers).status_code, 403)
+
+            self.assertEqual(self.move(pending_id, 3, "Assigned", assigned_to=4).status_code, 200)
+            second_pending = self.client.post('/reports', headers=citizen_headers, json={
+                "location_lat": 17.66, "location_lng": 75.9, "waste_type": "[DEMO] Evaluator assignment",
+                "severity": "Low", "image_url": "", "consent_accepted": True,
+                "policy_version": "2026-09-19",
+            })
+            self.assertEqual(second_pending.status_code, 201, second_pending.text)
+            second_pending_id = second_pending.json()["id"]
+            blocked = self.client.patch(
+                f"/reports/{second_pending_id}/status", headers=admin_headers,
+                json={"status": "Assigned", "assigned_to": 4},
+            )
+            self.assertEqual(blocked.status_code, 403, blocked.text)
+            assigned = self.client.patch(
+                f"/reports/{second_pending_id}/status", headers=admin_headers,
+                json={"status": "Assigned", "assigned_to": demo_worker_id},
+            )
+            self.assertEqual(assigned.status_code, 200, assigned.text)
+
+            worker_reports = self.client.get("/reports", headers=worker_headers)
+            self.assertEqual(worker_reports.status_code, 200, worker_reports.text)
+            self.assertTrue(worker_reports.json())
+            self.assertTrue(all(row["assigned_to"] == demo_worker_id for row in worker_reports.json()))
+        finally:
+            settings.enable_evaluator_accounts = previous_enabled
+            settings.bootstrap_admin_email = previous_owner
+
+    def test_ready_checks_database_connectivity(self):
+        response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"status": "ready"})
+        with patch.object(main, "SessionLocal", side_effect=RuntimeError("private-database-detail")):
+            unavailable = self.client.get("/ready")
+        self.assertEqual(unavailable.status_code, 500)
+        self.assertEqual(unavailable.json()["detail"], "Request failed. Please retry.")
+        self.assertNotIn("private-database-detail", unavailable.text)
 
     def test_full_flow_rewards_and_no_replay(self):
         rid = self.create()

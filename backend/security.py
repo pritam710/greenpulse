@@ -64,8 +64,10 @@ def current_user(request: Request, db: Session = Depends(get_db)):
     return user
 
 def safe_user(user):
+    from evaluator_demo import is_evaluator_account
     return {"id": user.id, "name": user.name, "role": user.role,
-            "green_credits": user.green_credits or 0}
+            "green_credits": user.green_credits or 0,
+            "demo_account": is_evaluator_account(user)}
 
 def next_user_id(db):
     # Never give a newly registered person ownership of legacy orphaned reports.

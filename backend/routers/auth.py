@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 import models
 from config import settings
 from database import get_db
+from evaluator_demo import demo_email, is_evaluator_account
 from security import (DUMMY_HASH, current_user, hash_password, next_user_id,
                       safe_user, throttle, token_hash, verify_password)
 
@@ -103,8 +104,10 @@ def logout(request: Request, user=Depends(current_user), db: Session = Depends(g
 def staff(user=Depends(current_user), db: Session = Depends(get_db)):
     if user.role != "Admin":
         raise HTTPException(403, "Administrator access required.")
-    return [{"id": u.id, "name": u.name} for u in
-            db.query(models.User).filter(models.User.role == "Driver").all()]
+    query = db.query(models.User).filter(models.User.role == "Driver")
+    if is_evaluator_account(user, "Admin"):
+        query = query.filter(models.User.email == demo_email("Driver"))
+    return [{"id": u.id, "name": u.name} for u in query.all()]
 
 @router.post("/staff", status_code=201)
 def create_staff(body: StaffRegistration, request: Request,

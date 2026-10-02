@@ -1,6 +1,6 @@
 # GreenPulse pilot hosting
 
-Current live architecture (verified 14 September 2026):
+Current live architecture (verified 2 October 2026):
 
 - Citizen website: https://pritam710.github.io/Green-Pulse/
 - HTTPS API: https://greenpulse-api-o5a2.onrender.com
@@ -45,6 +45,21 @@ data source. It remains private and temporarily retained only as a rollback copy
 - Migrated table counts were checked for users, reports, workflows, consent,
   audit events, sessions, bins, and work orders.
 
+## Public evaluator accounts
+
+The production pilot provisions three deliberately public accounts for SIH
+evaluation. They contain demonstration data only and must never be reused for a
+real deployment:
+
+- Demo administrator: `judge-admin@greenpulse.example`
+- Demo field worker: `judge-worker@greenpulse.example`
+- Demo citizen: `judge-citizen@greenpulse.example`
+
+The evaluator administrator is not the private owner. Server-side checks limit
+it to the evaluator citizen's reports and the evaluator field worker, and it
+cannot create, revoke, or list staff accounts for management. The owner's login
+is never published. Rotate or disable the evaluator accounts after judging.
+
 ## Deploying an update
 
 1. Review and test changes in the `pritam710/greenpulse` source repository.
@@ -87,7 +102,9 @@ delete either copy while a rollback or reconciliation is still possible.
 ## Free-plan limitations
 
 - Render Free web services can sleep when idle, so the first request may be slow.
-  Open the app and complete a test sign-in before a live demonstration.
+  The frontend starts a database readiness check when it opens and explains the
+  wake-up delay, but it cannot guarantee an instant first sign-in. Open the app
+  and complete a test sign-in before a live demonstration.
 - Neon Free has compute, storage, transfer, and history limits. Monitor usage and
   export backups before relying on the pilot for larger or real deployments.
 - The old Render Free PostgreSQL database is scheduled to expire in October 2026.

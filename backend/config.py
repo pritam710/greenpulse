@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     session_hours: int = Field(default=8, ge=1, le=24)
     bootstrap_admin_email: str = ""
     seed_demo_reports: bool = False
+    enable_evaluator_accounts: bool = True
 
     class Config:
         env_file = ".env"

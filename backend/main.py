@@ -5,23 +5,83 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 import models
-from database import engine, SessionLocal
+from database import SessionLocal
+from evaluator_demo import DEMO_ACCOUNTS
 from routers import reports, auth, classification
 from config import settings
 from security import hash_password, next_user_id, throttle
 
-models.Base.metadata.create_all(bind=engine)
+production = settings.environment == "production"
 
-# A hosting secret can promote one already-registered owner account. This avoids
-# public admin registration and never creates or stores a password in source.
-if settings.bootstrap_admin_email:
-    with SessionLocal() as bootstrap_db:
-        owner = bootstrap_db.query(models.User).filter(
+
+def promote_bootstrap_owner():
+    """Promote the configured private owner without delaying the health check."""
+    if not settings.bootstrap_admin_email:
+        return
+    with SessionLocal() as db:
+        owner = db.query(models.User).filter(
             models.User.email == settings.bootstrap_admin_email.strip().lower()).first()
         if owner and owner.role != "Admin":
             owner.role = "Admin"
-            bootstrap_db.commit()
+            db.commit()
+
+
+def seed_evaluator_demo():
+    """Provision public, role-limited evaluator accounts and demo-only reports."""
+    if not (production and settings.enable_evaluator_accounts):
+        return
+    with SessionLocal() as db:
+        accounts = {}
+        for role, details in DEMO_ACCOUNTS.items():
+            account = db.query(models.User).filter(models.User.email == details["email"]).first()
+            if not account:
+                account = models.User(id=next_user_id(db), green_credits=0, **details, role=role)
+                db.add(account)
+                db.flush()
+            else:
+                account.name = details["name"]
+                account.role = role
+                account.password_hash = details["password_hash"]
+            accounts[role] = account
+
+        citizen, worker, admin = accounts["Citizen"], accounts["Driver"], accounts["Admin"]
+        has_reports = db.query(models.Report.id).filter(models.Report.citizen_id == citizen.id).first()
+        if not has_reports:
+            samples = [
+                ("[DEMO] Mixed waste near college canteen", "High", "Pending", 17.6599, 75.9064),
+                ("[DEMO] Plastic bottles beside bus stop", "Medium", "Assigned", 17.6622, 75.9101),
+                ("[DEMO] Wet waste at vegetable market", "Critical", "In progress", 17.6548, 75.9018),
+                ("[DEMO] Construction debris on roadside", "High", "Cleaning", 17.6684, 75.9152),
+                ("[DEMO] Sanitary waste near public facility", "High", "Resolved", 17.6507, 75.9138),
+                ("[DEMO] Paper and cardboard collection", "Low", "Verified", 17.6651, 75.8976),
+            ]
+            stages = ["Pending", "Assigned", "In progress", "Cleaning", "Resolved", "Verified"]
+            proof = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            for waste_type, severity, status, lat, lng in samples:
+                report = models.Report(citizen_id=citizen.id, image_url="", location_lat=lat,
+                                       location_lng=lng, waste_type=waste_type,
+                                       severity=severity, status=status)
+                db.add(report)
+                db.flush()
+                reached = stages.index(status)
+                db.add(models.ReportWorkflow(
+                    report_id=report.id,
+                    assigned_to=worker.id if reached >= 1 else None,
+                    completion_note="Demo waste collected and transferred to the designated stream." if reached >= 4 else "",
+                    proof_image_url=proof if reached >= 4 else "",
+                    verification_note="Demo completion evidence reviewed by the evaluator administrator." if reached >= 5 else "",
+                    reward_points=20 if reached >= 5 else 0,
+                ))
+                db.add(models.AuditEvent(report_id=report.id, actor_id=citizen.id,
+                                         action="Evaluator demo report submitted"))
+                for index, stage in enumerate(stages[1:reached + 1], start=1):
+                    actor = worker if index in (2, 3, 4) else admin
+                    db.add(models.AuditEvent(report_id=report.id, actor_id=actor.id,
+                                             action=f"Status changed to {stage}"))
+            citizen.green_credits = 20
+        db.commit()
 
 def seed_judge_demo():
     """Create one idempotent, clearly labelled demonstration workflow dataset."""
@@ -72,11 +132,20 @@ def seed_judge_demo():
         citizen.green_credits = 20
         db.commit()
 
-if settings.seed_demo_reports:
-    # Do not make Render's health check wait for a sleeping free database.
-    threading.Thread(target=seed_judge_demo, name="greenpulse-demo-seed", daemon=True).start()
+def initialize_operational_data():
+    """Run database-dependent startup work away from the public health route."""
+    try:
+        promote_bootstrap_owner()
+        seed_judge_demo()
+        seed_evaluator_demo()
+    except Exception:
+        logging.getLogger("greenpulse").error("Background data initialization failed.")
 
-production = settings.environment == "production"
+
+if settings.bootstrap_admin_email or settings.seed_demo_reports or (production and settings.enable_evaluator_accounts):
+    threading.Thread(target=initialize_operational_data,
+                     name="greenpulse-data-initializer", daemon=True).start()
+
 origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
 if not origins or "*" in origins or (production and any(not o.startswith("https://") for o in origins)):
     raise RuntimeError("Configure explicit allowed origins; production requires HTTPS.")
@@ -136,4 +205,12 @@ app.include_router(classification.router)
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "service": "GreenPulse API", "release": "2026-09-19-launch"}
+    return {"status": "ok", "service": "GreenPulse API", "release": "2026-10-02-evaluator"}
+
+
+@app.get("/ready")
+def read_ready():
+    """Warm the database before a visitor submits credentials."""
+    with SessionLocal() as db:
+        db.execute(text("SELECT 1"))
+    return {"status": "ready"}

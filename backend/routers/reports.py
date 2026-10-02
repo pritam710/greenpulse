@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from database import get_db
+from evaluator_demo import demo_email, is_evaluator_account
 from security import current_user, throttle
 
 
@@ -16,6 +17,11 @@ def visible_query(db, user):
         query = query.filter(models.Report.citizen_id == user.id)
     elif user.role == "Driver":
         query = query.join(models.ReportWorkflow).filter(models.ReportWorkflow.assigned_to == user.id)
+    elif is_evaluator_account(user, "Admin"):
+        demo_citizen = db.query(models.User.id).filter(
+            models.User.email == demo_email("Citizen"), models.User.role == "Citizen",
+        ).scalar()
+        query = query.filter(models.Report.citizen_id == (demo_citizen or -1))
     return query
 
 def output(db, report):
@@ -80,6 +86,8 @@ def transition(report_id: int, body: schemas.Transition, user=Depends(current_us
         staff = db.query(models.User).filter(models.User.id == body.assigned_to).populate_existing().with_for_update().first() if body.assigned_to else None
         if not staff or staff.role != "Driver":
             raise HTTPException(422, "Choose a registered field worker.")
+        if is_evaluator_account(user, "Admin") and staff.email != demo_email("Driver"):
+            raise HTTPException(403, "The demo administrator can assign only the demo field worker.")
     if user.role == "Driver":
         active_worker = db.query(models.User).filter(models.User.id == user.id).populate_existing().with_for_update().first()
         if not active_worker or active_worker.role != "Driver":

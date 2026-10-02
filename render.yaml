@@ -16,6 +16,8 @@ services:
         value: 3.13.5
       - key: ENVIRONMENT
         value: production
+      - key: ENABLE_EVALUATOR_ACCOUNTS
+        value: true
       - key: ALLOWED_ORIGINS
         value: https://pritam710.github.io
       - key: DATABASE_URL
