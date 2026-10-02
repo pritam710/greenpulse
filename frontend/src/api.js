@@ -59,14 +59,16 @@ export async function api(path, options = {}) {
   return data;
 }
 
-// Start the free API and its database before a visitor submits credentials. This
-// is deliberately a GET with no retry: authentication POSTs must never be replayed.
+// Start the free API and its database before a visitor submits credentials. The
+// root fallback keeps the site compatible while an older backend release is
+// still active. Both requests are read-only; authentication POSTs are never
+// replayed.
 export function warmApi({ force = false } = {}) {
   if (!force && readyAt && Date.now() - readyAt < READY_CACHE_MS) {
     return Promise.resolve({ ready: true, cached: true });
   }
   if (warming) return warming;
-  warming = api('/ready')
+  warming = api('/ready').catch(() => api('/'))
     .then(() => { readyAt = Date.now(); return { ready: true, cached: false }; })
     .catch(error => ({ ready: false, message: error.message }))
     .finally(() => { warming = null; });
